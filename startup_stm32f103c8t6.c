@@ -125,32 +125,32 @@ __attribute__((section(".isr_vector"))) const uintptr_t vector_table[] = {
     (uintptr_t)EXTI9_5_IRQHandler,  // EXTI Line[9:5] 处理函数地址
     (uintptr_t)TIM1_BRK_IRQHandler, // TIM1 Break 处理函数地址
     (uintptr_t)TIM1_UP_IRQHandler,  // TIM1 Update 处理函数地址
-    (uintptr_t)TIM1_TRG_COM_IRQHandler, // TIM1 Trigger and Commutation
-                                        // 处理函数地址
-    (uintptr_t)TIM1_CC_IRQHandler,      // TIM1 Capture Compare 处理函数地址
-    (uintptr_t)TIM2_IRQHandler,         // TIM2 处理函数地址
-    (uintptr_t)TIM3_IRQHandler,         // TIM3 处理函数地址
-    (uintptr_t)TIM4_IRQHandler,         // TIM4 处理函数地址
-    (uintptr_t)I2C1_EV_IRQHandler,      // I2C1 Event 处理函数地址
-    (uintptr_t)I2C1_ER_IRQHandler,      // I2C1 Error 处理函数地址
-    (uintptr_t)I2C2_EV_IRQHandler,      // I2C2 Event 处理函数地址
-    (uintptr_t)I2C2_ER_IRQHandler,      // I2C2 Error 处理函数地址
-    (uintptr_t)SPI1_IRQHandler,         // SPI1 处理函数地址
-    (uintptr_t)SPI2_IRQHandler,         // SPI2 处理函数地址
-    (uintptr_t)USART1_IRQHandler,       // USART1 处理函数地址
-    (uintptr_t)USART2_IRQHandler,       // USART2 处理函数地址
-    (uintptr_t)USART3_IRQHandler,       // USART3 处理函数地址
-    (uintptr_t)EXTI15_10_IRQHandler,    // EXTI Line[15:10] 处理函数地址
-    (uintptr_t)RTC_Alarm_IRQHandler,    // RTC Alarm 处理函数地址
-    (uintptr_t)USBWakeUp_IRQHandler,    // USB Wakeup from suspend 处理函数地址
-    0,                                  // 保留
-    0,                                  // 保留
-    0,                                  // 保留
-    0,                                  // 保留
-    0,                                  // 保留
-    0,                                  // 保留
-    0,                                  // 保留
-    (uintptr_t)0xF108F85FU,             // BootRAM 处理函数地址
+    (uintptr_t)
+        TIM1_TRG_COM_IRQHandler,     // TIM1 Trigger and Commutation处理函数地址
+    (uintptr_t)TIM1_CC_IRQHandler,   // TIM1 Capture Compare 处理函数地址
+    (uintptr_t)TIM2_IRQHandler,      // TIM2 处理函数地址
+    (uintptr_t)TIM3_IRQHandler,      // TIM3 处理函数地址
+    (uintptr_t)TIM4_IRQHandler,      // TIM4 处理函数地址
+    (uintptr_t)I2C1_EV_IRQHandler,   // I2C1 Event 处理函数地址
+    (uintptr_t)I2C1_ER_IRQHandler,   // I2C1 Error 处理函数地址
+    (uintptr_t)I2C2_EV_IRQHandler,   // I2C2 Event 处理函数地址
+    (uintptr_t)I2C2_ER_IRQHandler,   // I2C2 Error 处理函数地址
+    (uintptr_t)SPI1_IRQHandler,      // SPI1 处理函数地址
+    (uintptr_t)SPI2_IRQHandler,      // SPI2 处理函数地址
+    (uintptr_t)USART1_IRQHandler,    // USART1 处理函数地址
+    (uintptr_t)USART2_IRQHandler,    // USART2 处理函数地址
+    (uintptr_t)USART3_IRQHandler,    // USART3 处理函数地址
+    (uintptr_t)EXTI15_10_IRQHandler, // EXTI Line[15:10] 处理函数地址
+    (uintptr_t)RTC_Alarm_IRQHandler, // RTC Alarm 处理函数地址
+    (uintptr_t)USBWakeUp_IRQHandler, // USB Wakeup from suspend 处理函数地址
+    0,                               // 保留
+    0,                               // 保留
+    0,                               // 保留
+    0,                               // 保留
+    0,                               // 保留
+    0,                               // 保留
+    0,                               // 保留
+    (uintptr_t)0xF108F85FU,          // BootRAM 处理函数地址
 };
 
 /* 实现 Reset_Handler 函数 */

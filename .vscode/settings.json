@@ -1,0 +1,15 @@
+{
+    "clangd.arguments": [
+        "--background-index",
+        "--header-insertion=never",
+        "--query-driver=/opt/arm-gnu-toolchain-15.2.rell/bin/arm-none-eabi-*"
+    ],
+    "editor.formatOnSave": true,
+    "[c]": {
+        "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
+    },
+    "[cpp]": {
+        "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
+    },
+    "C_Cpp.intelliSenseEngine": "disabled" // 关闭微软插件
+}
