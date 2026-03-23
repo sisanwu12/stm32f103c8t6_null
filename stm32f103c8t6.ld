@@ -29,3 +29,39 @@ SECTIONS
     . = ALIGN(4);           /* 确保代码段结束地址四字节对齐 */
     _etext = .;             /* 定义 _etext 符号，指向代码段结束位置 */
   } > FLASH
+
+  .ARM.exidx :
+  {
+    . = ALIGN(4);           /*  */
+    __exidx_start = .;
+    *(.ARM.exidx* .ARM.extab*)
+    __exidx_end = .;
+    . = ALIGN(4);
+  } > FLASH
+
+  .data :
+  {
+    . = ALIGN(4);
+    _sdata = .;
+    *(.data .data.*)
+    . = ALIGN(4);
+    _edata = .;
+  } > RAM AT > FLASH
+
+  _sidata = LOADADDR(.data);
+
+  .bss (NOLOAD) :
+  {
+    . = ALIGN(4);
+    _sbss = .;
+    *(.bss .bss.*)
+    *(COMMON)
+    . = ALIGN(4);
+    _ebss = .;
+  } > RAM
+
+  . = ALIGN(8);
+  _end = .;
+  end = .;
+
+}
