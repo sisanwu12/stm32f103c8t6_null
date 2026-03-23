@@ -1,0 +1,6 @@
+# 排除 .clangd
+.clangd
+
+# 排除 build
+build/
+
