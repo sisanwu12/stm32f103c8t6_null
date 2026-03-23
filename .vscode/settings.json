@@ -11,5 +11,16 @@
     "[cpp]": {
         "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
     },
-    "C_Cpp.intelliSenseEngine": "disabled" // 关闭微软插件
+    "C_Cpp.intelliSenseEngine": "disabled", // 关闭微软插件
+    "terminal.integrated.profiles.linux": {
+        "bash (nix develop)": {
+            "path": "bash",
+            "args": [
+                "-lc",
+                "exec nix develop"
+            ],
+            "overrideName": true
+        }
+    },
+    "terminal.integrated.defaultProfile.linux": "bash (nix develop)"
 }
