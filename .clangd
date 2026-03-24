@@ -1,4 +1,18 @@
 # .clangd
+If:
+  PathMatch: .*\.h
+CompileFlags:
+  Add:
+    - -x
+    - c-header
+---
+If:
+  PathMatch: .*\.c
+CompileFlags:
+  Add:
+    - -x
+    - c
+---
 CompileFlags:
   Add:
     - -std=c11

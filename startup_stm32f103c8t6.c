@@ -1,3 +1,17 @@
+/**
+ * @file startup_stm32f103c8t6.c
+ * @author sisanwu12
+ * @brief stm32f103c8t6 的启动文件。
+ * @note
+ * 1. 声明中断向量表；
+ * 2. 实现 Reset_Handler 函数；
+ * 3. 对所有中断函数实现一个空的弱实现
+ *
+ * @version 0.1
+ * @date 2026-03-23
+ *
+ */
+
 #include <stdint.h>
 
 extern uintptr_t _estack; // RAM 中栈顶地址

@@ -4,6 +4,10 @@
         "--header-insertion=never",
         "--query-driver=/opt/arm-gnu-toolchain-15.2.rell/bin/arm-none-eabi-*"
     ],
+    "files.associations": {
+        "*.h": "c",
+        "*.c": "c"
+    },
     "editor.formatOnSave": true,
     "[c]": {
         "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
