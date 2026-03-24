@@ -110,44 +110,37 @@ extern "C"
 
     typedef enum // GPIO 输出电平枚举
     {
-        DRI_LL_GPIO_LEVEL_LOW  = 0U, // 低电平
-        DRI_LL_GPIO_LEVEL_HIGH = 1U, // 高电平
+        GPIO_LEVEL_LOW  = 0U, // 低电平
+        GPIO_LEVEL_HIGH = 1U, // 高电平
     } dri_ll_gpio_level_t;           // GPIO 电平类型
 
-    typedef enum // GPIO 输入模式枚举
+    typedef enum // GPIO 模式枚举
     {
-        DRI_LL_GPIO_INPUT_MODE_NONE      = 0U, // 不使用输入模式
-        DRI_LL_GPIO_INPUT_MODE_ANALOG    = 1U, // 模拟输入
-        DRI_LL_GPIO_INPUT_MODE_FLOATING  = 2U, // 浮空输入
-        DRI_LL_GPIO_INPUT_MODE_PULL_UP   = 3U, // 上拉输入
-        DRI_LL_GPIO_INPUT_MODE_PULL_DOWN = 4U, // 下拉输入
-    } dri_ll_gpio_input_mode_t;                // GPIO 输入模式类型
-
-    typedef enum // GPIO 输出模式枚举
-    {
-        DRI_LL_GPIO_OUTPUT_MODE_NONE    = 0U, // 不使用输出模式
-        DRI_LL_GPIO_OUTPUT_MODE_GPIO_PP = 1U, // 通用推挽输出
-        DRI_LL_GPIO_OUTPUT_MODE_GPIO_OD = 2U, // 通用开漏输出
-        DRI_LL_GPIO_OUTPUT_MODE_AF_PP   = 3U, // 复用推挽输出
-        DRI_LL_GPIO_OUTPUT_MODE_AF_OD   = 4U, // 复用开漏输出
-    } dri_ll_gpio_output_mode_t;              // GPIO 输出模式类型
+        GPIO_MODE_ANALOG          = 0U, // 模拟输入
+        GPIO_MODE_INPUT_FLOATING  = 1U, // 浮空输入
+        GPIO_MODE_INPUT_PULL_UP   = 2U, // 上拉输入
+        GPIO_MODE_INPUT_PULL_DOWN = 3U, // 下拉输入
+        GPIO_MODE_OUTPUT_PP       = 4U, // 通用推挽输出
+        GPIO_MODE_OUTPUT_OD       = 5U, // 通用开漏输出
+        GPIO_MODE_AF_PP           = 6U, // 复用推挽输出
+        GPIO_MODE_AF_OD           = 7U, // 复用开漏输出
+    } dri_ll_gpio_mode_t;                      // GPIO 模式类型
 
     typedef enum // GPIO 输出速度枚举
     {
-        DRI_LL_GPIO_SPEED_NONE  = 0U, // 不使用输出速度
-        DRI_LL_GPIO_SPEED_2MHZ  = 1U, // 输出速度 2MHz
-        DRI_LL_GPIO_SPEED_10MHZ = 2U, // 输出速度 10MHz
-        DRI_LL_GPIO_SPEED_50MHZ = 3U, // 输出速度 50MHz
+        GPIO_SPEED_NONE  = 0U, // 不使用输出速度
+        GPIO_SPEED_2MHZ  = 1U, // 输出速度 2MHz
+        GPIO_SPEED_10MHZ = 2U, // 输出速度 10MHz
+        GPIO_SPEED_50MHZ = 3U, // 输出速度 50MHz
     } dri_ll_gpio_speed_t;            // GPIO 输出速度类型
 
     typedef struct // GPIO 初始化参数结构体
     {
-        dri_ll_gpio_port_t        port;          // 目标 GPIO 端口
-        dri_ll_gpio_pin_t         pin;           // 目标 GPIO 引脚
-        dri_ll_gpio_input_mode_t  input_mode;    // 输入模式，和输出模式二选一启用
-        dri_ll_gpio_output_mode_t output_mode;   // 输出模式，和输入模式二选一启用
-        dri_ll_gpio_speed_t       speed;         // 输出速度，仅输出模式下有效
-        dri_ll_gpio_level_t       initial_level; // 输出初始电平，仅输出模式下有效
+        dri_ll_gpio_port_t  port;          // 目标 GPIO 端口
+        dri_ll_gpio_pin_t   pin;           // 目标 GPIO 引脚
+        dri_ll_gpio_mode_t  mode;          // GPIO 工作模式
+        dri_ll_gpio_speed_t speed;         // 输出速度，仅输出模式下有效
+        dri_ll_gpio_level_t initial_level; // 输出初始电平，仅输出模式下有效
     } dri_ll_gpio_init_t;                        // GPIO 初始化参数类型
 
     void
