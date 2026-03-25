@@ -13,8 +13,8 @@
 #ifndef DRI_LL_GPIO_H // 防止头文件被重复包含
 #define DRI_LL_GPIO_H // 定义头文件保护宏
 
-#include <stddef.h> // 提供 NULL 定义
-#include <stdint.h> // 提供标准整数类型
+#include "data_type.h" // 引入团队统一数据类型别名
+#include <stddef.h>    // 提供 NULL 定义
 
 #ifdef __cplusplus // 兼容 C++ 编译器
 extern "C"
@@ -48,14 +48,14 @@ extern "C"
 
     typedef struct // GPIO 寄存器映射结构体
     {
-        volatile uint32_t CRL;  // 引脚 0~7 配置寄存器
-        volatile uint32_t CRH;  // 引脚 8~15 配置寄存器
-        volatile uint32_t IDR;  // 输入数据寄存器
-        volatile uint32_t ODR;  // 输出数据寄存器
-        volatile uint32_t BSRR; // 位置位/复位寄存器
-        volatile uint32_t BRR;  // 端口位复位寄存器
-        volatile uint32_t LCKR; // 配置锁定寄存器
-    } dri_ll_gpio_reg_t;        // GPIO 寄存器映射类型
+        volatile u32 CRL;  // 引脚 0~7 配置寄存器
+        volatile u32 CRH;  // 引脚 8~15 配置寄存器
+        volatile u32 IDR;  // 输入数据寄存器
+        volatile u32 ODR;  // 输出数据寄存器
+        volatile u32 BSRR; // 位置位/复位寄存器
+        volatile u32 BRR;  // 端口位复位寄存器
+        volatile u32 LCKR; // 配置锁定寄存器
+    } dri_ll_gpio_reg_t;   // GPIO 寄存器映射类型
 
 #define DRI_LL_GPIOA ((dri_ll_gpio_reg_t*)DRI_LL_GPIOA_BASE_ADDR) // GPIOA 寄存器入口
 #define DRI_LL_GPIOB ((dri_ll_gpio_reg_t*)DRI_LL_GPIOB_BASE_ADDR) // GPIOB 寄存器入口
@@ -95,16 +95,16 @@ extern "C"
     } dri_ll_gpio_pin_t;          // GPIO 引脚类型
 
     dri_ll_gpio_reg_t*
-             dri_ll_gpio_get_reg(dri_ll_gpio_port_t port);       // 根据端口编号获取 GPIO 寄存器入口
-    uint16_t dri_ll_gpio_get_pin_mask(dri_ll_gpio_pin_t pin);    // 根据引脚编号生成位掩码
-    void     dri_ll_gpio_config_pin_raw(dri_ll_gpio_port_t port, // 直接写入指定引脚的 4bit 配置字段
-                                        dri_ll_gpio_pin_t pin, uint32_t cfg_bits);
-    void     dri_ll_gpio_write_mask_raw(dri_ll_gpio_port_t port, // 通过 BSRR 原子写入置位和复位掩码
-                                        uint16_t set_mask, uint16_t reset_mask);
-    uint16_t dri_ll_gpio_read_input_raw(dri_ll_gpio_port_t port);  // 读取整个端口的 IDR 原始值
-    uint16_t dri_ll_gpio_read_output_raw(dri_ll_gpio_port_t port); // 读取整个端口的 ODR 原始值
-    void     dri_ll_gpio_write_output_raw(dri_ll_gpio_port_t port, // 直接写入整个端口的 ODR 值
-                                          uint16_t           value);
+         dri_ll_gpio_get_reg(dri_ll_gpio_port_t port);       // 根据端口编号获取 GPIO 寄存器入口
+    u16  dri_ll_gpio_get_pin_mask(dri_ll_gpio_pin_t pin);    // 根据引脚编号生成位掩码
+    void dri_ll_gpio_config_pin_raw(dri_ll_gpio_port_t port, // 直接写入指定引脚的 4bit 配置字段
+                                    dri_ll_gpio_pin_t pin, u32 cfg_bits);
+    void dri_ll_gpio_write_mask_raw(dri_ll_gpio_port_t port, // 通过 BSRR 原子写入置位和复位掩码
+                                    u16 set_mask, u16 reset_mask);
+    u16  dri_ll_gpio_read_input_raw(dri_ll_gpio_port_t port);  // 读取整个端口的 IDR 原始值
+    u16  dri_ll_gpio_read_output_raw(dri_ll_gpio_port_t port); // 读取整个端口的 ODR 原始值
+    void dri_ll_gpio_write_output_raw(dri_ll_gpio_port_t port, // 直接写入整个端口的 ODR 值
+                                      u16                value);
 
     /* ==================== 用户接口层 ==================== */ // GPIO 对外使用接口层
 
@@ -112,7 +112,7 @@ extern "C"
     {
         GPIO_LEVEL_LOW  = 0U, // 低电平
         GPIO_LEVEL_HIGH = 1U, // 高电平
-    } dri_ll_gpio_level_t;           // GPIO 电平类型
+    } dri_ll_gpio_level_t;    // GPIO 电平类型
 
     typedef enum // GPIO 模式枚举
     {
@@ -124,7 +124,7 @@ extern "C"
         GPIO_MODE_OUTPUT_OD       = 5U, // 通用开漏输出
         GPIO_MODE_AF_PP           = 6U, // 复用推挽输出
         GPIO_MODE_AF_OD           = 7U, // 复用开漏输出
-    } dri_ll_gpio_mode_t;                      // GPIO 模式类型
+    } dri_ll_gpio_mode_t;               // GPIO 模式类型
 
     typedef enum // GPIO 输出速度枚举
     {
@@ -132,7 +132,7 @@ extern "C"
         GPIO_SPEED_2MHZ  = 1U, // 输出速度 2MHz
         GPIO_SPEED_10MHZ = 2U, // 输出速度 10MHz
         GPIO_SPEED_50MHZ = 3U, // 输出速度 50MHz
-    } dri_ll_gpio_speed_t;            // GPIO 输出速度类型
+    } dri_ll_gpio_speed_t;     // GPIO 输出速度类型
 
     typedef struct // GPIO 初始化参数结构体
     {
@@ -141,7 +141,7 @@ extern "C"
         dri_ll_gpio_mode_t  mode;          // GPIO 工作模式
         dri_ll_gpio_speed_t speed;         // 输出速度，仅输出模式下有效
         dri_ll_gpio_level_t initial_level; // 输出初始电平，仅输出模式下有效
-    } dri_ll_gpio_init_t;                        // GPIO 初始化参数类型
+    } dri_ll_gpio_init_t;                  // GPIO 初始化参数类型
 
     void
          dri_ll_gpio_init(const dri_ll_gpio_init_t*
@@ -158,11 +158,11 @@ extern "C"
     dri_ll_gpio_read_input_pin(dri_ll_gpio_port_t port, // 读取一个 GPIO 引脚输入电平
                                dri_ll_gpio_pin_t  pin);
     dri_ll_gpio_level_t
-             dri_ll_gpio_read_output_pin(dri_ll_gpio_port_t port, // 读取一个 GPIO 引脚输出电平
-                                         dri_ll_gpio_pin_t  pin);
-    uint16_t dri_ll_gpio_read_input_port(dri_ll_gpio_port_t port);            // 读取整个端口输入值
-    uint16_t dri_ll_gpio_read_output_port(dri_ll_gpio_port_t port);           // 读取整个端口输出值
-    void     dri_ll_gpio_write_port(dri_ll_gpio_port_t port, uint16_t value); // 写整个端口输出值
+         dri_ll_gpio_read_output_pin(dri_ll_gpio_port_t port, // 读取一个 GPIO 引脚输出电平
+                                     dri_ll_gpio_pin_t  pin);
+    u16  dri_ll_gpio_read_input_port(dri_ll_gpio_port_t port);       // 读取整个端口输入值
+    u16  dri_ll_gpio_read_output_port(dri_ll_gpio_port_t port);      // 读取整个端口输出值
+    void dri_ll_gpio_write_port(dri_ll_gpio_port_t port, u16 value); // 写整个端口输出值
 
 #ifdef __cplusplus // 兼容 C++ 编译器
 } // 结束 C 链接方式导出

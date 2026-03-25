@@ -21,6 +21,8 @@ CompileFlags:
     - --target=*
   Add:
     - -std=c11
+    - -I.
+    - -ILibraries
     - -mcpu=cortex-m3
     - -mthumb
     - -ffreestanding
