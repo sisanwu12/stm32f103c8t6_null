@@ -9,3 +9,10 @@
  *
  * @note 本文件声明内核核心依赖的通用移植层接口，不绑定具体处理器实现。
  */
+
+#ifndef __OS_PORT_H__
+#define __OS_PORT_H__
+
+#include "os_port_cortex_m3.h" // IWYU pragma: export
+
+#endif /* __OS_PORT_H__ */

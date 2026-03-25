@@ -14,17 +14,15 @@
 #define __OS_TASK_H__
 
 #include <stdint.h>
+#include "os_config.h"
 #include "os_list.h"
-
-#ifndef OS_MAX_PRIORITIES
-    #define OS_MAX_PRIORITIES 32U
-#endif
+#include "os_types.h"
 
 #if (OS_MAX_PRIORITIES > 32U)
     #error "OS_MAX_PRIORITIES must be less than or equal to 32 when using a 32-bit ready bitmap."
 #endif
 
-typedef void (*task_entry_t)(void *param); // 任务入口函数类型定义，接受一个 void* 参数
+#define OS_TASK_MAGIC 0x54434231UL // "TCB1"，用于识别合法任务控制块
 
 typedef enum {
     TASK_READY = 0,
@@ -36,13 +34,15 @@ typedef enum {
 
 typedef struct tcb {
     uint32_t *sp;              // 当前任务栈顶指针
-    uint32_t *stack_base;      // 栈起始地址
+    uint32_t *stack_base;      // 栈内存低地址起点
     uint32_t  stack_size;      // 栈深度，单位为uint32_t
 
     task_entry_t entry;        // 任务入口函数
     void       *param;         // 任务参数
+    const char *name;          // 任务名称，仅用于调试和诊断
 
-    uint32_t wake_tick;        // 延时或超时唤醒的目标tick
+    uint32_t magic;            // 任务控制块魔数，用于识别初始化状态
+    os_tick_t wake_tick;       // 延时或超时唤醒的目标tick
     void    *wait_obj;         // 当前正在等待的对象
 
     uint8_t      priority;          // 优先级
@@ -54,10 +54,29 @@ typedef struct tcb {
     list_node_t event_node;    // 事件等待链表节点，用于queue/semaphore等待
 } tcb_t; // TCB结构定义
 
+typedef struct task_init_config {
+    task_entry_t entry;   // 任务入口函数
+    void        *param;   // 任务入口参数
+    uint32_t    *stack_base; // 任务栈内存低地址起点
+    uint32_t     stack_size; // 栈深度，单位为uint32_t
+    const char  *name;    // 任务名称
+    uint8_t      priority; // 任务优先级，数值越小优先级越高
+    uint8_t      time_slice; // 时间片长度，传 0 使用默认值
+} task_init_config_t; // 任务初始化配置
+
 typedef struct ready_queue {
-    list_t   ready_lists[OS_MAX_PRIORITIES]; // 每个优先级一条就绪链表
-    uint32_t ready_bitmap;                   // 就绪位图，bit置位表示该优先级非空
-} ready_queue_t; // 调度器就绪队列
+    list_t   ready_lists[OS_MAX_PRIORITIES]; // 每个优先级一条可运行链表
+    uint32_t ready_bitmap;                   // 可运行位图，bit置位表示该优先级非空
+} ready_queue_t; // 调度器可运行任务集合
+
+os_status_t task_system_init(void);
+os_status_t task_create(tcb_t *task, const task_init_config_t *config);
+os_status_t task_select_next(void);
+os_status_t task_schedule(void);
+tcb_t *task_get_current(void);
+tcb_t *task_get_next(void);
+ready_queue_t *task_get_ready_queue(void);
+os_status_t task_set_current(tcb_t *task);
 
 void ready_queue_init(ready_queue_t *queue);
 void ready_queue_insert_tail(ready_queue_t *queue, tcb_t *task);

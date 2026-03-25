@@ -9,3 +9,14 @@
  *
  * @note 本文件声明面向 Cortex-M3 内核的专用移植层宏、类型与底层接口。
  */
+
+#ifndef __OS_PORT_CORTEX_M3_H__
+#define __OS_PORT_CORTEX_M3_H__
+
+#include <stdint.h>
+#include "os_config.h"
+#include "os_types.h"
+
+uint32_t *os_port_task_stack_init(uint32_t *stack_base, uint32_t stack_size, task_entry_t entry, void *param);
+
+#endif /* __OS_PORT_CORTEX_M3_H__ */

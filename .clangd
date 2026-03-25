@@ -26,3 +26,5 @@ CompileFlags:
     - -mcpu=cortex-m3
     - -mthumb
     - -ffreestanding
+Diagnostics:
+  UnusedIncludes: None
