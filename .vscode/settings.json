@@ -39,5 +39,4 @@
             "-lc"
         ]
     },
-    "cmake.sourceDirectory": "/home/ssw12/projects/stm32f103c8t6_null/project"
 }

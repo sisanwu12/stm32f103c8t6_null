@@ -18,6 +18,9 @@ get_filename_component(ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 set(LIB_DIR "${ROOT_DIR}/Libraries")
 set(DRI_DIR "${ROOT_DIR}/driver")
 set(USER_DIR "${ROOT_DIR}/user")
+set(RTOS_DIR "${ROOT_DIR}/RTOS")
+set(RTOS_INC_DIR "${RTOS_DIR}/include")
+set(RTOS_PORT_DIR "${RTOS_DIR}/portable")
 set(LINKER_SCRIPT "${ROOT_DIR}/stm32f103c8t6.ld")
 
 # 在配置阶段打印出当前实际使用的工具链信息，便于确认确实来自 Nix dev shell。
@@ -61,6 +64,15 @@ set(DRIVER_SOURCES
     "${DRI_DIR}/dri_ll_rcc.c"
 )
 
+# RTOS 内核与端口层源码统一在这里维护，确保这些源文件也进入 compile_commands.json。
+set(RTOS_SOURCES
+    "${RTOS_DIR}/os_list.c"
+    "${RTOS_DIR}/os_pool.c"
+    "${RTOS_DIR}/os_queue.c"
+    "${RTOS_DIR}/os_task.c"
+    "${RTOS_PORT_DIR}/os_port_cortex_m3.c"
+)
+
 # 应用层源码放在这里。当前约定主入口文件是 user/main.c。
 set(APP_SOURCES
     "${USER_DIR}/main.c"
@@ -78,6 +90,7 @@ endif()
 add_executable(null_proj
     ${STARTUP_SOURCES}
     ${DRIVER_SOURCES}
+    ${RTOS_SOURCES}
     ${APP_SOURCES}
 )
 
@@ -101,6 +114,8 @@ target_compile_definitions(null_proj PRIVATE STM32F103xx)
 target_include_directories(null_proj PRIVATE
     "${LIB_DIR}"
     "${DRI_DIR}"
+    "${RTOS_INC_DIR}"
+    "${RTOS_PORT_DIR}"
 )
 
 # 这里用了 CMake 的生成器表达式：
