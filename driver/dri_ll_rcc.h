@@ -12,11 +12,6 @@
 
 #include "data_type.h"
 
-#ifdef __cplusplus // 兼容 C++ 编译器
-extern "C"
-{      // 使用 C 链接方式导出接口
-#endif // 结束 C++ 兼容判断
-
 /* ========== RCC 地址定义层 ========== */
 
 /* RCC 基地址 */
@@ -34,63 +29,62 @@ extern "C"
 #define DRI_LL_RCC_BDCR_OFFSET     0x20UL // 备份域控制寄存器
 #define DRI_LL_RCC_CSR_OFFSET      0x24UL // 控制/状态寄存器
 
-    /* ========== 对外接口 ========== */
+/* ========== 对外接口 ========== */
 
-    /* ========== RCC_CR 相关函数 start */
+/* ========== RCC_CR 相关函数 start */
 
-    /* PLL 使能函数 */
-    void dri_ll_rcc_pll_enable(void);
-    /* PLL 就绪状态查询函数 */
-    bool dri_ll_rcc_pll_is_ready(void);
-    /* HSI 使能函数 */
-    void dri_ll_rcc_hsi_enable(void);
-    /* HSI 就绪状态查询函数 */
-    bool dri_ll_rcc_hsi_is_ready(void);
-    /* HSE 使能函数 */
-    void dri_ll_rcc_hse_enable(void);
-    /* HSE 就绪状态查询函数 */
-    bool dri_ll_rcc_hse_is_ready(void);
+/* PLL 使能函数 */
+void dri_ll_rcc_pll_enable(void);
+/* PLL 就绪状态查询函数 */
+bool dri_ll_rcc_pll_is_ready(void);
+/* PLL 初始化函数 */
+void dri_ll_rcc_pll_init(bool pll_source, u8 pll_mul);
 
-    /* RCC_CR 相关函数 end ========== */
+/* HSI 使能函数 */
+void dri_ll_rcc_hsi_enable(void);
+/* HSI 就绪状态查询函数 */
+bool dri_ll_rcc_hsi_is_ready(void);
+/* HSE 使能函数 */
+void dri_ll_rcc_hse_enable(void);
+/* HSE 就绪状态查询函数 */
+bool dri_ll_rcc_hse_is_ready(void);
 
-    /* ========== RCC_CFGR 相关函数 start */
+/* RCC_CR 相关函数 end ========== */
 
-    /* RCC_CFGR 相关函数 end ========== */
+/* ========== RCC_CFGR 相关函数 start */
 
-    /* ========== RCC_CIR 相关函数 start */
+/* RCC_CFGR 相关函数 end ========== */
 
-    /* RCC_CIR 相关函数 end ========== */
+/* ========== RCC_CIR 相关函数 start */
 
-    /* ========== RCC_APB2RSTR 相关函数 start */
+/* RCC_CIR 相关函数 end ========== */
 
-    /* RCC_APB2RSTR 相关函数 end ========== */
+/* ========== RCC_APB2RSTR 相关函数 start */
 
-    /* ========== RCC_APB1RSTR 相关函数 start */
+/* RCC_APB2RSTR 相关函数 end ========== */
 
-    /* RCC_APB1RSTR 相关函数 end ========== */
+/* ========== RCC_APB1RSTR 相关函数 start */
 
-    /* ========== RCC_AHBENR 相关函数 start */
+/* RCC_APB1RSTR 相关函数 end ========== */
 
-    /* RCC_AHBENR 相关函数 end ========== */
+/* ========== RCC_AHBENR 相关函数 start */
 
-    /* ========== RCC_APB2ENR 相关函数 start */
+/* RCC_AHBENR 相关函数 end ========== */
 
-    /* RCC_APB2ENR 相关函数 end ========== */
+/* ========== RCC_APB2ENR 相关函数 start */
 
-    /* ========== RCC_APB1ENR 相关函数 start */
+/* RCC_APB2ENR 相关函数 end ========== */
 
-    /* RCC_APB1ENR 相关函数 end ========== */
+/* ========== RCC_APB1ENR 相关函数 start */
 
-    /* ========== RCC_BDCR 相关函数 start */
+/* RCC_APB1ENR 相关函数 end ========== */
 
-    /* RCC_BDCR 相关函数 end ========== */
+/* ========== RCC_BDCR 相关函数 start */
 
-    /* ========== RCC_CSR 相关函数 start */
+/* RCC_BDCR 相关函数 end ========== */
 
-    /* RCC_CSR 相关函数 end ========== */
+/* ========== RCC_CSR 相关函数 start */
 
-#ifdef __cplusplus // 兼容 C++ 编译器
-} // 结束 C 链接方式导出
-#endif // 结束 C++ 兼容判断
+/* RCC_CSR 相关函数 end ========== */
 
 #endif /* __DRI_LL_RCC_H__ */

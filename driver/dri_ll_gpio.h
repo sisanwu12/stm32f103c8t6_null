@@ -14,7 +14,6 @@
 #define DRI_LL_GPIO_H // 定义头文件保护宏
 
 #include "data_type.h" // 引入团队统一数据类型别名
-#include <stddef.h>    // 提供 NULL 定义
 
 #ifdef __cplusplus // 兼容 C++ 编译器
 extern "C"

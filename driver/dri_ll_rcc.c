@@ -20,6 +20,31 @@ bool dri_ll_rcc_pll_is_ready(void)
     return (*rcc_cr & (1U << 25)) != 0; // 返回 PLLRDY 位的值
 }
 
+/**
+ * @brief 初始化 PLL
+ *
+ * @param pll_source PLL 时钟源选择，false 表示 HSI 作为 PLL 时钟源，true 表示 HSE 作为 PLL 时钟源
+ * @param pll_mul PLL 倍频系数，取值范围为 0~15，对应倍频系数 2~16
+ *
+ */
+void dri_ll_rcc_pll_init(bool pll_source, u8 pll_mul)
+{
+    /* 配置 RCC_CFGR 寄存器的 PLLSRC 位 (第16位) 来选择 PLL 时钟源 */
+    volatile uptr* rcc_cfgr = (volatile uptr*)(DRI_LL_RCC_BASE_ADDR + DRI_LL_RCC_CFGR_OFFSET);
+    if (!pll_source) // HSI 作为 PLL 时钟源
+    {
+        *rcc_cfgr &= ~(1U << 16); // 清除 PLLSRC 位，选择 HSI 作为 PLL 时钟源
+    }
+    else // HSE 作为 PLL 时钟源
+    {
+        *rcc_cfgr |= (1U << 16); // 置位 PLLSRC 位，选择 HSE 作为 PLL 时钟源
+    }
+
+    /* 配置 RCC_CFGR 寄存器的 PLLMUL 位 (第18~21位) 来设置 PLL 倍频系数 */
+    *rcc_cfgr &= ~(0xFU << 18);            // 清除原有的 PLLMUL 位
+    *rcc_cfgr |= ((pll_mul & 0x0F) << 18); // 设置新的 PLLMUL 位
+}
+
 /* HSI 使能函数 */
 void dri_ll_rcc_hsi_enable(void)
 {
