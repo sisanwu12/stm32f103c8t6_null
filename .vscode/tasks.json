@@ -9,6 +9,7 @@
         "develop",
         "-c",
         "cmake",
+        "--fresh",
         "-S",
         "${workspaceFolder}/project",
         "-B",

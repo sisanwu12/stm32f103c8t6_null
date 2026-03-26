@@ -39,5 +39,6 @@
             "-lc"
         ]
     },
+    "cmake.cmakePath": "${workspaceFolder}/.vscode/nix-cmake",
     "cmake.sourceDirectory": "${workspaceFolder}/project"
 }
