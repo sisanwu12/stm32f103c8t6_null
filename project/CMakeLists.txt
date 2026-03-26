@@ -16,6 +16,9 @@ set(CMAKE_C_EXTENSIONS OFF)
 # 统一整理工程中的关键路径，后面引用文件时都走这些变量。
 get_filename_component(ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 set(LIB_DIR "${ROOT_DIR}/Libraries")
+set(CMSIS_DIR "${ROOT_DIR}/CMSIS")
+set(CMSIS_CORE_INC_DIR "${CMSIS_DIR}/Core/Include")
+set(CMSIS_DEVICE_INC_DIR "${CMSIS_DIR}/Device/ST/STM32F1xx/Include")
 set(DRI_DIR "${ROOT_DIR}/driver")
 set(USER_DIR "${ROOT_DIR}/user")
 set(RTOS_DIR "${ROOT_DIR}/RTOS")
@@ -67,6 +70,7 @@ set(DRIVER_SOURCES
 # RTOS 内核与端口层源码统一在这里维护，确保这些源文件也进入 compile_commands.json。
 set(RTOS_SOURCES
     "${RTOS_DIR}/os_list.c"
+    "${RTOS_DIR}/os_kernel.c"
     "${RTOS_DIR}/os_pool.c"
     "${RTOS_DIR}/os_queue.c"
     "${RTOS_DIR}/os_task.c"
@@ -107,12 +111,14 @@ set_target_properties(null_proj PROPERTIES
     C_EXTENSIONS OFF
 )
 
-# 传入芯片型号宏，供头文件和条件编译使用。
-target_compile_definitions(null_proj PRIVATE STM32F103xx)
+# 传入精确芯片型号宏，供 CMSIS 设备头和条件编译使用。
+target_compile_definitions(null_proj PRIVATE STM32F103xB)
 
 # 为编译器补充头文件搜索路径。
 target_include_directories(null_proj PRIVATE
     "${LIB_DIR}"
+    "${CMSIS_CORE_INC_DIR}"
+    "${CMSIS_DEVICE_INC_DIR}"
     "${DRI_DIR}"
     "${RTOS_INC_DIR}"
     "${RTOS_PORT_DIR}"

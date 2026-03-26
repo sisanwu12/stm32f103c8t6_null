@@ -2,3 +2,5 @@
 build/
 # 排除 .cache
 .cache/
+# 排除 MEMORY.md
+RTOS/MEMORY.md

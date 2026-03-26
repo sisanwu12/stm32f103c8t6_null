@@ -18,5 +18,7 @@
 #include "os_types.h"
 
 uint32_t *os_port_task_stack_init(uint32_t *stack_base, uint32_t stack_size, task_entry_t entry, void *param);
+void os_port_trigger_pendsv(void);
+void os_port_start_first_task(void);
 
 #endif /* __OS_PORT_CORTEX_M3_H__ */

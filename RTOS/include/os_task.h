@@ -71,8 +71,9 @@ typedef struct ready_queue {
 
 os_status_t task_system_init(void);
 os_status_t task_create(tcb_t *task, const task_init_config_t *config);
-os_status_t task_select_next(void);
 os_status_t task_schedule(void);
+os_status_t task_yield(void);
+os_status_t task_time_slice_tick(void);
 tcb_t *task_get_current(void);
 tcb_t *task_get_next(void);
 ready_queue_t *task_get_ready_queue(void);

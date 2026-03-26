@@ -20,15 +20,17 @@ typedef uint32_t os_stack_word_t; // 任务栈中单个栈元素的类型
 typedef void (*task_entry_t)(void *param); // 任务入口函数类型定义
 
 typedef enum {
-    OS_STATUS_OK = 0,            // 操作成功
-    OS_STATUS_INVALID_PARAM,     // 参数非法
-    OS_STATUS_INVALID_PRIORITY,  // 优先级非法
-    OS_STATUS_INVALID_STACK,     // 栈参数非法
-    OS_STATUS_INVALID_STATE,     // 当前对象状态不允许执行该操作
+    OS_STATUS_OK = 0,              // 操作成功
+    OS_STATUS_SWITCH_REQUIRED,     // 已得出调度结果，调用方需要触发上下文切换
+    OS_STATUS_NO_CHANGE,           // 已执行检查，但当前无需切换
+    OS_STATUS_INVALID_PARAM,       // 参数非法
+    OS_STATUS_INVALID_PRIORITY,    // 优先级非法
+    OS_STATUS_INVALID_STACK,       // 栈参数非法
+    OS_STATUS_INVALID_STATE,       // 当前对象状态不允许执行该操作
     OS_STATUS_ALREADY_INITIALIZED, // 对象已经完成初始化
-    OS_STATUS_NOT_INITIALIZED,   // 模块尚未初始化
-    OS_STATUS_EMPTY,             // 容器为空
-    OS_STATUS_INSERT_FAILED      // 插入或挂链操作失败
+    OS_STATUS_NOT_INITIALIZED,     // 模块尚未初始化
+    OS_STATUS_EMPTY,               // 容器为空
+    OS_STATUS_INSERT_FAILED        // 插入或挂链操作失败
 } os_status_t; // RTOS 状态码定义
 
 #endif /* __OS_TYPES_H__ */
