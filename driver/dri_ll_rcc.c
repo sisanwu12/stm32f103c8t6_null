@@ -1,132 +1,195 @@
-#include "dri_ll_rcc.h"
-
-/* ========== RCC 对外接口实现 ========== */
-
-/* ========== RCC_CR 相关函数 start */
-
-/* PLL 使能函数 */
-void dri_ll_rcc_pll_enable(void)
-{
-    /* 设置 RCC_CR 寄存器的 PLLON 位 (第24位) 来使能 PLL */
-    volatile uptr* rcc_cr = (volatile uptr*)(DRI_LL_RCC_BASE_ADDR + DRI_LL_RCC_CR_OFFSET);
-    *rcc_cr |= (1U << 24); // 置位 PLLON 位
-}
-
-/* PLL 就绪状态查询函数 */
-bool dri_ll_rcc_pll_is_ready(void)
-{
-    /* 查询 RCC_CR 寄存器的 PLLRDY 位 (第25位) 来判断 PLL 是否就绪 */
-    volatile uptr* rcc_cr = (volatile uptr*)(DRI_LL_RCC_BASE_ADDR + DRI_LL_RCC_CR_OFFSET);
-    return (*rcc_cr & (1U << 25)) != 0; // 返回 PLLRDY 位的值
-}
-
 /**
- * @brief 初始化 PLL
- *
- * @param pll_source PLL 时钟源选择，false 表示 HSI 作为 PLL 时钟源，true 表示 HSE 作为 PLL 时钟源
- * @param pll_mul PLL 倍频系数，取值范围为 0~15，对应倍频系数 2~16
+ * @file dri_ll_rcc.c
+ * @author sisanwu12
+ * @brief
+ * @version 0.1
+ * @date 2026-03-31
  *
  */
-void dri_ll_rcc_pll_init(bool pll_source, u8 pll_mul)
-{
-    /* 配置 RCC_CFGR 寄存器的 PLLSRC 位 (第16位) 来选择 PLL 时钟源 */
-    volatile uptr* rcc_cfgr = (volatile uptr*)(DRI_LL_RCC_BASE_ADDR + DRI_LL_RCC_CFGR_OFFSET);
-    if (!pll_source) // HSI 作为 PLL 时钟源
-    {
-        *rcc_cfgr &= ~(1U << 16); // 清除 PLLSRC 位，选择 HSI 作为 PLL 时钟源
-    }
-    else // HSE 作为 PLL 时钟源
-    {
-        *rcc_cfgr |= (1U << 16); // 置位 PLLSRC 位，选择 HSE 作为 PLL 时钟源
-    }
 
-    /* 配置 RCC_CFGR 寄存器的 PLLMUL 位 (第18~21位) 来设置 PLL 倍频系数 */
-    *rcc_cfgr &= ~(0xFU << 18);            // 清除原有的 PLLMUL 位
-    *rcc_cfgr |= ((pll_mul & 0x0F) << 18); // 设置新的 PLLMUL 位
-}
+#define __USE_RCC_OFFSET
 
-/* HSI 使能函数 */
+#include "dri_ll_rcc.h"
+#include "dri_ll.h"
+
+/* ========== 时钟源控制 ========== */
+
+/* HSI 控制函数 */
 void dri_ll_rcc_hsi_enable(void)
 {
-    /* 设置 RCC_CR 寄存器的 HSION 位 (第0位) 来使能 HSI */
-    volatile uptr* rcc_cr = (volatile uptr*)(DRI_LL_RCC_BASE_ADDR + DRI_LL_RCC_CR_OFFSET);
-    *rcc_cr |= (1U << 0); // 置位 HSION 位
+    dri_ll_set_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET, 0x00000001UL); // 设置 HSION 位
+    while (!dri_ll_rcc_hsi_is_ready())
+        ;
 }
-
-/* HSI 就绪状态查询函数 */
+void dri_ll_rcc_hsi_disable(void)
+{
+    dri_ll_clear_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET, 0x00000001UL); // 清除 HSION 位
+    while (dri_ll_rcc_hsi_is_ready())
+        ;
+}
 bool dri_ll_rcc_hsi_is_ready(void)
 {
-    /* 查询 RCC_CR 寄存器的 HSIRDY 位 (第1位) 来判断 HSI 是否就绪 */
-    volatile uptr* rcc_cr = (volatile uptr*)(DRI_LL_RCC_BASE_ADDR + DRI_LL_RCC_CR_OFFSET);
-    return (*rcc_cr & (1U << 1)) != 0; // 返回 HSIRDY 位的值
+    return (dri_ll_read_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET) & 0x00000002UL) !=
+           0; // 检查 HSIRDY 位
 }
 
-/* HSE 使能函数 */
+/* HSE 控制函数 */
 void dri_ll_rcc_hse_enable(void)
 {
-    /* 设置 RCC_CR 寄存器的 HSEON 位 (第16位) 来使能 HSE */
-    volatile uptr* rcc_cr = (volatile uptr*)(DRI_LL_RCC_BASE_ADDR + DRI_LL_RCC_CR_OFFSET);
-    *rcc_cr |= (1U << 16); // 置位 HSEON 位
+    dri_ll_set_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET, 0x00010000UL); // 设置 HSEON 位
+    while (!dri_ll_rcc_hse_is_ready())
+        ;
 }
-
-/* HSE 就绪状态查询函数 */
+void dri_ll_rcc_hse_disable(void)
+{
+    dri_ll_clear_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET, 0x00010000UL); // 清除 HSEON 位
+    while (dri_ll_rcc_hse_is_ready())
+        ;
+}
 bool dri_ll_rcc_hse_is_ready(void)
 {
-    /* 查询 RCC_CR 寄存器的 HSERDY 位 (第17位) 来判断 HSE 是否就绪 */
-    volatile uptr* rcc_cr = (volatile uptr*)(DRI_LL_RCC_BASE_ADDR + DRI_LL_RCC_CR_OFFSET);
-    return (*rcc_cr & (1U << 17)) != 0; // 返回 HSERDY 位的值
+    return (dri_ll_read_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET) & 0x00020000UL) !=
+           0; // 检查 HSERDY 位
 }
 
-/* 设置 HSE 旁路模式函数 */
-bool dri_ll_rcc_set_hsebyp(bool hse_byp)
+/* PLL 控制函数 */
+void dri_ll_rcc_pll_enable(void)
 {
-    /* 设置 RCC_CR 寄存器的 HSEBYP 位 (第18位) 来配置 HSE 的旁路模式 */
-    volatile uptr* rcc_cr = (volatile uptr*)(DRI_LL_RCC_BASE_ADDR + DRI_LL_RCC_CR_OFFSET);
-    if (hse_byp)
-    {
-        *rcc_cr |= (1U << 18); // 置位 HSEBYP 位，启用旁路模式
-    }
-    else
-    {
-        *rcc_cr &= ~(1U << 18); // 清除 HSEBYP 位，使用晶振模式
-    }
-    return true; // 返回设置成功
+    dri_ll_set_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET, 0x01000000UL); // 设置 PLLON 位
+    while (!dri_ll_rcc_pll_is_ready())
+        ;
+}
+void dri_ll_rcc_pll_disable(void)
+{
+    dri_ll_clear_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET, 0x01000000UL); // 清除 PLLON 位
+    while (dri_ll_rcc_pll_is_ready())
+        ;
+}
+bool dri_ll_rcc_pll_is_ready(void)
+{
+    return (dri_ll_read_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET) & 0x02000000UL) !=
+           0; // 检查 PLLRDY 位
 }
 
-/* RCC_CR 相关函数 end ========== */
+/* HSE 过渡控制函数 */
+void dri_ll_rcc_hse_bypass_enable(void)
+{
+    dri_ll_set_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET, 0x00040000UL); // 设置 HSEBYP 位
+}
+void dri_ll_rcc_hse_bypass_disable(void)
+{
+    dri_ll_clear_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET, 0x00040000UL); // 清除 HSEBYP 位
+}
 
-/* ========== RCC_CFGR 相关函数 start */
+/* ========== 系统时钟选择与预分频 ========== */
 
-/* RCC_CFGR 相关函数 end ========== */
+/* 系统时钟选择 */
+void dri_ll_rcc_sysclk_select(u32 sysclk_source)
+{
+    dri_ll_modify_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET, 0x00000003UL,
+                      sysclk_source & 0x00000003UL); // 设置 SW 位
+}
 
-/* ========== RCC_CIR 相关函数 start */
+/* AHB 和 APB 预分频设置 */
+void dri_ll_rcc_ahb_prescaler_set(u32 ahb_prescaler)
+{
+    dri_ll_modify_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET, 0x000000F0UL,
+                      ahb_prescaler & 0x000000F0UL); // 设置 HPRE 位
+}
 
-/* RCC_CIR 相关函数 end ========== */
+/* APB1 预分频设置 */
+void dri_ll_rcc_apb1_prescaler_set(u32 apb1_prescaler)
+{
+    dri_ll_modify_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET, 0x00001C00UL,
+                      apb1_prescaler & 0x00001C00UL); // 设置 PPRE1 位
+}
 
-/* ========== RCC_APB2RSTR 相关函数 start */
+/* APB2 预分频设置 */
+void dri_ll_rcc_apb2_prescaler_set(u32 apb2_prescaler)
+{
+    dri_ll_modify_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET, 0x00003800UL,
+                      apb2_prescaler & 0x00003800UL); // 设置 PPRE2 位
+}
 
-/* RCC_APB2RSTR 相关函数 end ========== */
+/* 获取系统时钟源 */
+u32 dri_ll_rcc_sysclk_source_get(void)
+{
+    return dri_ll_read_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET) &
+           0x00000003UL; // 获取 SW 位
+}
 
-/* ========== RCC_APB1RSTR 相关函数 start */
+/* 获取系统时钟状态 */
+u32 dri_ll_rcc_sysclk_status_get(void)
+{
+    return (dri_ll_read_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET) >> 2) &
+           0x00000003UL; // 获取并对齐 SWS 位
+}
 
-/* RCC_APB1RSTR 相关函数 end ========== */
+/* ========== PLL 配置 ========== */
 
-/* ========== RCC_AHBENR 相关函数 start */
+/* 设置 PLL 时钟源 */
+void dri_ll_rcc_pll_source_set(u32 source)
+{
+    dri_ll_modify_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET, 0x00010000UL,
+                      source & 0x00010000UL); // 设置 PLLSRC 位
+}
 
-/* RCC_AHBENR 相关函数 end ========== */
+/* 设置 PLL 倍频 */
+void dri_ll_rcc_pll_mul_set(u32 value)
+{
+    dri_ll_modify_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET, 0x003C0000UL,
+                      value & 0x003C0000UL); // 设置 PLLMUL 位
+}
 
-/* ========== RCC_APB2ENR 相关函数 start */
+/* 获取 PLL 时钟源 */
+u32 dri_ll_rcc_pll_source_get(void)
+{
+    return dri_ll_read_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET) &
+           0x00010000UL; // 获取 PLLSRC 位
+}
 
-/* RCC_APB2ENR 相关函数 end ========== */
+/* 获取 PLL 倍频 */
+u32 dri_ll_rcc_pll_mul_get(void)
+{
+    return dri_ll_read_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET) &
+           0x003C0000UL; // 获取 PLLMUL 位
+}
 
-/* ========== RCC_APB1ENR 相关函数 start */
+/* ========== 外设时钟门控 ========== */
 
-/* RCC_APB1ENR 相关函数 end ========== */
-
-/* ========== RCC_BDCR 相关函数 start */
-
-/* RCC_BDCR 相关函数 end ========== */
-
-/* ========== RCC_CSR 相关函数 start */
-
-/* RCC_CSR 相关函数 end ========== */
+void dri_ll_rcc_ahb_enable(dri_ll_rcc_ahb_enr mask)
+{
+    dri_ll_set_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_AHBENR_OFFSET, mask);
+}
+void dri_ll_rcc_ahb_disable(dri_ll_rcc_ahb_enr mask)
+{
+    dri_ll_clear_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_AHBENR_OFFSET, mask);
+}
+void dri_ll_rcc_apb1_enable(dri_ll_rcc_apb1_enr mask)
+{
+    dri_ll_set_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_APB1ENR_OFFSET, mask);
+}
+void dri_ll_rcc_apb1_disable(dri_ll_rcc_apb1_enr mask)
+{
+    dri_ll_clear_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_APB1ENR_OFFSET, mask);
+}
+void dri_ll_rcc_apb2_enable(dri_ll_rcc_apb2_enr mask)
+{
+    dri_ll_set_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_APB2ENR_OFFSET, mask);
+}
+void dri_ll_rcc_apb2_disable(dri_ll_rcc_apb2_enr mask)
+{
+    dri_ll_clear_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_APB2ENR_OFFSET, mask);
+}
+bool dri_ll_rcc_ahb_is_enabled(dri_ll_rcc_ahb_enr mask)
+{
+    return (dri_ll_read_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_AHBENR_OFFSET) & mask) != 0;
+}
+bool dri_ll_rcc_apb1_is_enabled(dri_ll_rcc_apb1_enr mask)
+{
+    return (dri_ll_read_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_APB1ENR_OFFSET) & mask) != 0;
+}
+bool dri_ll_rcc_apb2_is_enabled(dri_ll_rcc_apb2_enr mask)
+{
+    return (dri_ll_read_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_APB2ENR_OFFSET) & mask) != 0;
+}

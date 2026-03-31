@@ -4,3 +4,5 @@ build/
 .cache/
 # 排除 MEMORY.md
 RTOS/MEMORY.md
+# 排除 .codex
+.codex
