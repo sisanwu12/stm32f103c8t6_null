@@ -48,4 +48,7 @@ typedef bool isENABLE;
 #define RESET false
 typedef bool isSET;
 
+typedef bool isREADY;
+typedef bool isERROR;
+
 #endif /* __DATA_TYPE_H__ */

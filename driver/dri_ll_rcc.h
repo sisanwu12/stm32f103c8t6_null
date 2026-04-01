@@ -86,19 +86,19 @@ typedef enum
 /* ========== 时钟源控制 ========== */
 
 /* HSI 控制函数 */
-void dri_ll_rcc_hsi_enable(void);
-void dri_ll_rcc_hsi_disable(void);
-bool dri_ll_rcc_hsi_is_ready(void);
+void    dri_ll_rcc_hsi_enable(void);
+void    dri_ll_rcc_hsi_disable(void);
+isREADY dri_ll_rcc_hsi_is_ready(void);
 
 /* HSE 控制函数 */
-void dri_ll_rcc_hse_enable(void);
-void dri_ll_rcc_hse_disable(void);
-bool dri_ll_rcc_hse_is_ready(void);
+void    dri_ll_rcc_hse_enable(void);
+void    dri_ll_rcc_hse_disable(void);
+isREADY dri_ll_rcc_hse_is_ready(void);
 
 /* PLL 控制函数 */
-void dri_ll_rcc_pll_enable(void);
-void dri_ll_rcc_pll_disable(void);
-bool dri_ll_rcc_pll_is_ready(void);
+void    dri_ll_rcc_pll_enable(void);
+void    dri_ll_rcc_pll_disable(void);
+isREADY dri_ll_rcc_pll_is_ready(void);
 
 /* HSE 过渡控制函数 */
 void dri_ll_rcc_hse_bypass_enable(void);
@@ -120,16 +120,16 @@ u32  dri_ll_rcc_pll_mul_get(void);
 
 /* ========== 外设时钟门控 ========== */
 
-void dri_ll_rcc_ahb_enable(dri_ll_rcc_ahb_enr mask);
-void dri_ll_rcc_ahb_disable(dri_ll_rcc_ahb_enr mask);
-bool dri_ll_rcc_ahb_is_enabled(dri_ll_rcc_ahb_enr mask);
+void     dri_ll_rcc_ahb_enable(dri_ll_rcc_ahb_enr mask);
+void     dri_ll_rcc_ahb_disable(dri_ll_rcc_ahb_enr mask);
+isENABLE dri_ll_rcc_ahb_is_enabled(dri_ll_rcc_ahb_enr mask);
 
-void dri_ll_rcc_apb1_enable(dri_ll_rcc_apb1_enr mask);
-void dri_ll_rcc_apb1_disable(dri_ll_rcc_apb1_enr mask);
-bool dri_ll_rcc_apb1_is_enabled(dri_ll_rcc_apb1_enr mask);
+void     dri_ll_rcc_apb1_enable(dri_ll_rcc_apb1_enr mask);
+void     dri_ll_rcc_apb1_disable(dri_ll_rcc_apb1_enr mask);
+isENABLE dri_ll_rcc_apb1_is_enabled(dri_ll_rcc_apb1_enr mask);
 
-void dri_ll_rcc_apb2_enable(dri_ll_rcc_apb2_enr mask);
-void dri_ll_rcc_apb2_disable(dri_ll_rcc_apb2_enr mask);
-bool dri_ll_rcc_apb2_is_enabled(dri_ll_rcc_apb2_enr mask);
+void     dri_ll_rcc_apb2_enable(dri_ll_rcc_apb2_enr mask);
+void     dri_ll_rcc_apb2_disable(dri_ll_rcc_apb2_enr mask);
+isENABLE dri_ll_rcc_apb2_is_enabled(dri_ll_rcc_apb2_enr mask);
 
 #endif /* __DRI_LL_RCC_H__ */

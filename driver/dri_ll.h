@@ -15,35 +15,35 @@
 /* ========== 基础操作 ==========*/
 
 /* 写寄存器函数 */
-static void inline dri_ll_write_reg(uptr base_addr, uptr offset, u32 value)
+static inline void dri_ll_write_reg(uptr base_addr, uptr offset, u32 value)
 {
     volatile uptr* reg_addr = (volatile uptr*)(base_addr + offset);
     *reg_addr               = value;
 }
 
 /* 读寄存器函数 */
-static u32 inline dri_ll_read_reg(uptr base_addr, uptr offset)
+static inline u32 dri_ll_read_reg(uptr base_addr, uptr offset)
 {
     volatile uptr* reg_addr = (volatile uptr*)(base_addr + offset);
     return *reg_addr;
 }
 
 /* 设置寄存器位函数 */
-static void inline dri_ll_set_bits(uptr base_addr, uptr offset, u32 bits)
+static inline void dri_ll_set_bits(uptr base_addr, uptr offset, u32 bits)
 {
     volatile uptr* reg_addr = (volatile uptr*)(base_addr + offset);
     *reg_addr |= bits;
 }
 
 /* 清除寄存器位函数 */
-static void inline dri_ll_clear_bits(uptr base_addr, uptr offset, u32 bits)
+static inline void dri_ll_clear_bits(uptr base_addr, uptr offset, u32 bits)
 {
     volatile uptr* reg_addr = (volatile uptr*)(base_addr + offset);
     *reg_addr &= ~bits;
 }
 
 /* 修改寄存器函数 */
-static void inline dri_ll_modify_reg(uptr base_addr, uptr offset, u32 clear_mask, u32 set_mask)
+static inline void dri_ll_modify_reg(uptr base_addr, uptr offset, u32 clear_mask, u32 set_mask)
 {
     volatile uptr* reg_addr = (volatile uptr*)(base_addr + offset);
     *reg_addr               = (*reg_addr & ~clear_mask) | set_mask;
