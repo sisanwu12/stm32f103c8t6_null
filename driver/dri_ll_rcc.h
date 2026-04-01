@@ -33,6 +33,66 @@
 #define DRI_LL_RCC_BDCR_OFFSET     0x20UL // 备份域控制寄存器
 #define DRI_LL_RCC_CSR_OFFSET      0x24UL // 控制/状态寄存器
 
+/* =========== 寄存器位定义 =========== */
+
+/* cr寄存器位定义 */
+typedef enum
+{
+    CR_HSION   = (1UL << 0),  // HSI 时钟使能位
+    CR_HSIRDY  = (1UL << 1),  // HSI 就绪位
+    CR_HSITRI0 = (1UL << 3),  // HSI 调谐位 0
+    CR_HSITRI1 = (1UL << 4),  // HSI 调谐位 1
+    CR_HSITRI2 = (1UL << 5),  // HSI 调谐位 2
+    CR_HSITRI3 = (1UL << 6),  // HSI 调谐位 3
+    CR_HSITRI4 = (1UL << 7),  // HSI 调谐位 4
+    CR_HSICAL0 = (1UL << 8),  // HSI 校准位 0
+    CR_HSICAL1 = (1UL << 9),  // HSI 校准位 1
+    CR_HSICAL2 = (1UL << 10), // HSI 校准位 2
+    CR_HSICAL3 = (1UL << 11), // HSI 校准位 3
+    CR_HSICAL4 = (1UL << 12), // HSI 校准位 4
+    CR_HSEON   = (1UL << 16), // HSE 时钟使能位
+    CR_HSERDY  = (1UL << 17), // HSE 就绪位
+    CR_HSEBYP  = (1UL << 18), // HSE 过渡使能位
+    CR_CSSON   = (1UL << 19), // 时钟安全系统使能位
+    CR_PLLON   = (1UL << 24), // PLL 时钟使能位
+    CR_PLLRDY  = (1UL << 25), // PLL 就绪位
+    CR_PLL2ON  = (1UL << 26), // PLL2 时钟使能位
+    CR_PLL2RDY = (1UL << 27), // PLL2 就绪位
+    CR_PLL3ON  = (1UL << 28), // PLL3 时钟使能位
+    CR_PLL3RDY = (1UL << 29), // PLL3 就绪位
+} dri_ll_rcc_cr_bits;
+
+/* cfgr寄存器位定义 */
+typedef enum
+{
+    CFGR_SW0      = (1UL << 0),  // 系统时钟选择位 0
+    CFGR_SW1      = (1UL << 1),  // 系统时钟选择位 1
+    CFGR_SWS0     = (1UL << 2),  // 系统时钟状态位 0
+    CFGR_SWS1     = (1UL << 3),  // 系统时钟状态位 1
+    CFGR_HPRE0    = (1UL << 4),  // AHB 预分频位 0
+    CFGR_HPRE1    = (1UL << 5),  // AHB 预分频位 1
+    CFGR_HPRE2    = (1UL << 6),  // AHB 预分频位 2
+    CFGR_HPRE3    = (1UL << 7),  // AHB 预分频位 3
+    CFGR_PPRE10   = (1UL << 8),  // APB1 预分频位 0
+    CFGR_PPRE11   = (1UL << 9),  // APB1 预分频位 1
+    CFGR_PPRE12   = (1UL << 10), // APB1 预分频位 2
+    CFGR_PPRE20   = (1UL << 11), // APB2 预分频位 0
+    CFGR_PPRE21   = (1UL << 12), // APB2 预分频位 1
+    CFGR_PPRE22   = (1UL << 13), // APB2 预分频位 2
+    CFGR_ADCPRE0  = (1UL << 14), // ADC 预分频位 0
+    CFGR_ADCPRE1  = (1UL << 15), // ADC 预分频位 1
+    CFGR_PLLSRC   = (1UL << 16), // PLL 时钟源选择位
+    CFGR_PLLXTPRE = (1UL << 17), // PLL HSE 分频位
+    CFGR_PLLMUL0  = (1UL << 18), // PLL 倍频位 0
+    CFGR_PLLMUL1  = (1UL << 19), // PLL 倍频位 1
+    CFGR_PLLMUL2  = (1UL << 20), // PLL 倍频位 2
+    CFGR_PLLMUL3  = (1UL << 21), // PLL 倍频位 3
+    CFGR_OTGFSPRE = (1UL << 22), // OTG FS 预分频位 0
+    CFGR_MCO0     = (1UL << 24), // MCO 输出位 0
+    CFGR_MCO1     = (1UL << 25), // MCO 输出位 1
+    CFGR_MCO2     = (1UL << 26), // MCO 输出位 2
+} dri_ll_rcc_cfgr_bits;
+
 /* ahb 高速时钟外设 */
 typedef enum
 {
@@ -43,7 +103,7 @@ typedef enum
     AHB_CRC   = (1UL << 6),  // CRC 时钟使能位
     AHB_FSMC  = (1UL << 8),  // FSMC 时钟使能位
     AHB_SDIO  = (1UL << 10), // SDIO 时钟使能位
-} dri_ll_rcc_ahb_enr;
+} dri_ll_rcc_ahbenr_bits;
 
 /* apb1 低速外设 */
 typedef enum
@@ -63,7 +123,7 @@ typedef enum
     APB1_BKP    = (1UL << 27), // BKP 时钟使能位
     APB1_PWR    = (1UL << 28), // PWR 时钟使能位
     APB1_DAC    = (1UL << 29), // DAC 时钟使能位
-} dri_ll_rcc_apb1_enr;
+} dri_ll_rcc_apb1enr_bits;
 
 /* apb2 高速外设 */
 typedef enum
@@ -79,7 +139,7 @@ typedef enum
     APB2_TIM1   = (1UL << 11), // TIM1 时钟使能位
     APB2_SPI1   = (1UL << 12), // SPI1 时钟使能位
     APB2_USART1 = (1UL << 14), // USART1 时钟使能位
-} dri_ll_rcc_apb2_enr;
+} dri_ll_rcc_apb2enr_bits;
 
 #endif /* __USE_RCC_OFFSET */
 
@@ -120,16 +180,16 @@ u32  dri_ll_rcc_pll_mul_get(void);
 
 /* ========== 外设时钟门控 ========== */
 
-void     dri_ll_rcc_ahb_enable(dri_ll_rcc_ahb_enr mask);
-void     dri_ll_rcc_ahb_disable(dri_ll_rcc_ahb_enr mask);
-isENABLE dri_ll_rcc_ahb_is_enabled(dri_ll_rcc_ahb_enr mask);
+void     dri_ll_rcc_ahb_enable(dri_ll_rcc_ahbenr_bits mask);
+void     dri_ll_rcc_ahb_disable(dri_ll_rcc_ahbenr_bits mask);
+isENABLE dri_ll_rcc_ahb_is_enabled(dri_ll_rcc_ahbenr_bits mask);
 
-void     dri_ll_rcc_apb1_enable(dri_ll_rcc_apb1_enr mask);
-void     dri_ll_rcc_apb1_disable(dri_ll_rcc_apb1_enr mask);
-isENABLE dri_ll_rcc_apb1_is_enabled(dri_ll_rcc_apb1_enr mask);
+void     dri_ll_rcc_apb1_enable(dri_ll_rcc_apb1enr_bits mask);
+void     dri_ll_rcc_apb1_disable(dri_ll_rcc_apb1enr_bits mask);
+isENABLE dri_ll_rcc_apb1_is_enabled(dri_ll_rcc_apb1enr_bits mask);
 
-void     dri_ll_rcc_apb2_enable(dri_ll_rcc_apb2_enr mask);
-void     dri_ll_rcc_apb2_disable(dri_ll_rcc_apb2_enr mask);
-isENABLE dri_ll_rcc_apb2_is_enabled(dri_ll_rcc_apb2_enr mask);
+void     dri_ll_rcc_apb2_enable(dri_ll_rcc_apb2enr_bits mask);
+void     dri_ll_rcc_apb2_disable(dri_ll_rcc_apb2enr_bits mask);
+isENABLE dri_ll_rcc_apb2_is_enabled(dri_ll_rcc_apb2enr_bits mask);
 
 #endif /* __DRI_LL_RCC_H__ */
