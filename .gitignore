@@ -6,3 +6,4 @@ build/
 RTOS/MEMORY.md
 # 排除 .codex
 .codex
+RTOS/blogs/
