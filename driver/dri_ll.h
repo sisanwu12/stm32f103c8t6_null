@@ -63,10 +63,10 @@ static inline void dri_ll_modify_reg(uptr base_addr, uptr offset, u32 clear_mask
 /**
  * @brief 位状态检查函数
  *
- * @param base_addr
- * @param offset
- * @param bits
- * @return bool
+ * @param base_addr 寄存器基地址
+ * @param offset 寄存器偏移地址
+ * @param bits 要检查的位掩码
+ * @return bool 如果所有指定的位都被置位则返回 true，否则返回 false
  */
 static inline bool dri_ll_is_bits_set(uptr base_addr, uptr offset, u32 bits)
 {
@@ -76,10 +76,10 @@ static inline bool dri_ll_is_bits_set(uptr base_addr, uptr offset, u32 bits)
 /**
  * @brief 位状态清除检查函数
  *
- * @param base_addr
- * @param offset
- * @param bits
- * @return bool
+ * @param base_addr 寄存器基地址
+ * @param offset 寄存器偏移地址
+ * @param bits 要检查的位掩码
+ * @return bool 如果所有指定的位都被清除则返回 true，否则返回 false
  */
 static inline bool dri_ll_is_bits_clear(uptr base_addr, uptr offset, u32 bits)
 {
@@ -89,11 +89,11 @@ static inline bool dri_ll_is_bits_clear(uptr base_addr, uptr offset, u32 bits)
 /**
  * @brief 读取寄存器字段函数
  *
- * @param base_addr
- * @param offset
- * @param mask
- * @param pos
- * @return u32
+ * @param base_addr 寄存器基地址
+ * @param offset 寄存器偏移地址
+ * @param mask 字段掩码
+ * @param pos 字段位置
+ * @return u32 字段值
  */
 static inline u32 dri_ll_read_field(uptr base_addr, uptr offset, u32 mask, u32 pos)
 {
@@ -103,9 +103,9 @@ static inline u32 dri_ll_read_field(uptr base_addr, uptr offset, u32 mask, u32 p
 /**
  * @brief 等待寄存器位被置位函数
  *
- * @param base_addr
- * @param offset
- * @param bits
+ * @param base_addr 寄存器基地址
+ * @param offset 寄存器偏移地址
+ * @param bits 要等待的位掩码
  */
 static inline void dri_ll_wait_bits_set(uptr base_addr, uptr offset, u32 bits)
 {
@@ -117,9 +117,9 @@ static inline void dri_ll_wait_bits_set(uptr base_addr, uptr offset, u32 bits)
 /**
  * @brief 等待寄存器位被清除函数
  *
- * @param base_addr
- * @param offset
- * @param bits
+ * @param base_addr 寄存器基地址
+ * @param offset 寄存器偏移地址
+ * @param bits 要等待的位掩码
  */
 
 static inline void dri_ll_wait_bits_clear(uptr base_addr, uptr offset, u32 bits)
