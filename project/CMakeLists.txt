@@ -58,7 +58,7 @@ set(COMMON_COMPILE_OPTIONS
 
 # 启动文件负责中断向量表、复位入口、.data 拷贝与 .bss 清零。
 set(STARTUP_SOURCES
-    "${ROOT_DIR}/startup_stm32f103c8t6.c"
+    "${LIB_DIR}/startup_stm32f103c8t6.c"
 )
 
 # 驱动层源码放在这里统一维护。

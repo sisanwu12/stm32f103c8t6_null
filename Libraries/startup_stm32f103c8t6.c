@@ -13,6 +13,7 @@
  */
 
 #include "data_type.h"
+#include "system_stm32f103c8t6.h"
 
 extern uptr _estack; // RAM 中栈顶地址
 extern uptr _etext;  // FLASH 中程序正文结束地址
@@ -183,7 +184,9 @@ void Reset_Handler(void)
         *dst++ = 0;
     }
 
-    // 3. 跳转到 main 函数
+    // 3. 系统初始化，配置系统时钟等相关设置
+    SystemInit();
+    // 4. 跳转到 main 函数
     main();
 
     // 如果 main 返回了，进入死循环
