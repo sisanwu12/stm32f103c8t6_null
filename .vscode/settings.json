@@ -8,6 +8,7 @@
         "clangd",
         "--background-index",
         "--header-insertion=never",
+        "--compile-commands-dir=${workspaceFolder}/build",
         "--query-driver=arm-none-eabi-*,/nix/store/*/bin/arm-none-eabi-*"
     ],
     "files.associations": {
@@ -40,5 +41,10 @@
         ]
     },
     "cmake.cmakePath": "${workspaceFolder}/.vscode/nix-cmake",
-    "cmake.sourceDirectory": "${workspaceFolder}/project"
+    "cmake.sourceDirectory": "${workspaceFolder}/project",
+    "cmake.buildDirectory": "${workspaceFolder}/build",
+    "cmake.generator": "Ninja",
+    "cmake.configureSettings": {
+        "CMAKE_TOOLCHAIN_FILE": "${workspaceFolder}/project/arm-gnu-none-eabi.cmake"
+    }
 }

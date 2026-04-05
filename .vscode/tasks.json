@@ -4,18 +4,15 @@
     {
       "label": "CMake Configure",
       "type": "shell",
-      "command": "nix",
+      "command": "${workspaceFolder}/.vscode/nix-cmake",
       "args": [
-        "develop",
-        "-c",
-        "cmake",
         "--fresh",
         "-S",
-        "${workspaceFolder}/project",
+        "${config:cmake.sourceDirectory}",
         "-B",
-        "${workspaceFolder}/build",
+        "${config:cmake.buildDirectory}",
         "-G",
-        "Ninja",
+        "${config:cmake.generator}",
         "-DCMAKE_TOOLCHAIN_FILE=${workspaceFolder}/project/arm-gnu-none-eabi.cmake"
       ],
       "options": {
@@ -26,13 +23,10 @@
     {
       "label": "CMake Build",
       "type": "shell",
-      "command": "nix",
+      "command": "${workspaceFolder}/.vscode/nix-cmake",
       "args": [
-        "develop",
-        "-c",
-        "cmake",
         "--build",
-        "${workspaceFolder}/build",
+        "${config:cmake.buildDirectory}",
         "--target",
         "all"
       ],
@@ -74,17 +68,14 @@
     {
       "label": "Flash",
       "type": "shell",
-      "command": "nix",
+      "command": "${workspaceFolder}/.vscode/nix-openocd",
       "args": [
-        "develop",
-        "-c",
-        "openocd",
         "-f",
         "interface/cmsis-dap.cfg",
         "-f",
         "target/stm32f1x.cfg",
         "-c",
-        "program ${workspaceFolder}/build/null_proj.elf verify reset exit"
+        "program ${config:cmake.buildDirectory}/null_proj.elf verify reset exit"
       ],
       "dependsOn": [
         "CMake Build"
@@ -98,15 +89,12 @@
     {
       "label": "Clean",
       "type": "shell",
-      "command": "nix",
+      "command": "${workspaceFolder}/.vscode/nix-cmake",
       "args": [
-        "develop",
-        "-c",
-        "cmake",
         "-E",
         "rm",
         "-rf",
-        "${workspaceFolder}/build",
+        "${config:cmake.buildDirectory}",
         "${workspaceFolder}/.cache"
       ],
       "presentation": {

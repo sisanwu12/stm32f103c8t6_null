@@ -1,8 +1,8 @@
 # 这里要求的 CMake 版本与 flake.nix 中提供的 cmake 版本保持一致。
 cmake_minimum_required(VERSION 4.1.2)
 
-# 定义项目名称，并声明当前工程只使用 C 语言。
-project(null_proj LANGUAGES C)
+# 定义项目名称，并声明当前工程使用 C 与 ASM 语言。
+project(null_proj LANGUAGES C ASM)
 
 # 导出 compile_commands.json，方便 Nix 环境中的 clangd 做跳转、补全与诊断。
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -19,12 +19,12 @@ set(LIB_DIR "${ROOT_DIR}/Libraries")
 set(CMSIS_DIR "${ROOT_DIR}/CMSIS")
 set(CMSIS_CORE_INC_DIR "${CMSIS_DIR}/Core/Include")
 set(CMSIS_DEVICE_INC_DIR "${CMSIS_DIR}/Device/ST/STM32F1xx/Include")
-set(DRI_DIR "${ROOT_DIR}/driver")
+set(DRIVER_DIR "${LIB_DIR}/driver")
 set(USER_DIR "${ROOT_DIR}/user")
 set(RTOS_DIR "${ROOT_DIR}/RTOS")
 set(RTOS_INC_DIR "${RTOS_DIR}/include")
 set(RTOS_PORT_DIR "${RTOS_DIR}/portable")
-set(LINKER_SCRIPT "${ROOT_DIR}/stm32f103c8t6.ld")
+set(LINKER_SCRIPT "${LIB_DIR}/stm32f103c8t6.ld")
 
 # 在配置阶段打印出当前实际使用的工具链信息，便于确认确实来自 Nix dev shell。
 message(STATUS "Nix toolchain C compiler : ${CMAKE_C_COMPILER}")
@@ -56,30 +56,35 @@ set(COMMON_COMPILE_OPTIONS
     -fdata-sections
 )
 
-# 启动文件负责中断向量表、复位入口、.data 拷贝与 .bss 清零。
-set(STARTUP_SOURCES
-    "${LIB_DIR}/startup_stm32f103c8t6.c"
-)
+# 当前工程目录结构已经调整过，这里按目录自动收集源码，避免每次新增文件都手工维护列表。
+file(GLOB LIBRARY_SOURCES CONFIGURE_DEPENDS "${LIB_DIR}/*.c")
+file(GLOB DRIVER_SOURCES CONFIGURE_DEPENDS "${DRIVER_DIR}/*.c")
+file(GLOB RTOS_CORE_SOURCES CONFIGURE_DEPENDS "${RTOS_DIR}/*.c")
+file(GLOB RTOS_PORT_SOURCES CONFIGURE_DEPENDS "${RTOS_PORT_DIR}/*.c")
+file(GLOB APP_SOURCES CONFIGURE_DEPENDS "${USER_DIR}/*.c")
 
-# 驱动层源码放在这里统一维护。
-set(DRIVER_SOURCES
-    "${DRI_DIR}/dri_ll_gpio.c"
-    "${DRI_DIR}/dri_ll_rcc.c"
-)
+list(SORT LIBRARY_SOURCES)
+list(SORT DRIVER_SOURCES)
+list(SORT RTOS_CORE_SOURCES)
+list(SORT RTOS_PORT_SOURCES)
+list(SORT APP_SOURCES)
+
+# 启动文件负责中断向量表、复位入口、.data 拷贝与 .bss 清零；
+# 其余 Libraries/*.c 视作系统支持文件，例如 system_stm32f103c8t6.c。
+set(STARTUP_SOURCES "")
+set(SYSTEM_SOURCES "")
+foreach(source IN LISTS LIBRARY_SOURCES)
+    if(source MATCHES "/startup_[^/]+\\.c$")
+        list(APPEND STARTUP_SOURCES "${source}")
+    else()
+        list(APPEND SYSTEM_SOURCES "${source}")
+    endif()
+endforeach()
 
 # RTOS 内核与端口层源码统一在这里维护，确保这些源文件也进入 compile_commands.json。
 set(RTOS_SOURCES
-    "${RTOS_DIR}/os_list.c"
-    "${RTOS_DIR}/os_kernel.c"
-    "${RTOS_DIR}/os_pool.c"
-    "${RTOS_DIR}/os_queue.c"
-    "${RTOS_DIR}/os_task.c"
-    "${RTOS_PORT_DIR}/os_port_cortex_m3.c"
-)
-
-# 应用层源码放在这里。当前约定主入口文件是 user/main.c。
-set(APP_SOURCES
-    "${USER_DIR}/main.c"
+    ${RTOS_CORE_SOURCES}
+    ${RTOS_PORT_SOURCES}
 )
 
 # 如果应用层源码列表为空，就在配置阶段直接报错，避免生成一个不可链接的工程。
@@ -90,12 +95,25 @@ if(NOT APP_SOURCES)
     )
 endif()
 
-# 生成最终固件目标：把启动文件、驱动文件和应用文件一起链接成一个 ELF。
-add_executable(null_proj
+# 如果当前目录结构里没有找到任何源码，也在配置阶段尽早报错。
+set(PROJECT_SOURCES
     ${STARTUP_SOURCES}
+    ${SYSTEM_SOURCES}
     ${DRIVER_SOURCES}
     ${RTOS_SOURCES}
     ${APP_SOURCES}
+)
+
+if(NOT PROJECT_SOURCES)
+    message(FATAL_ERROR
+        "No source files were found. Check the current project layout under "
+        "Libraries/, Libraries/driver/, RTOS/, RTOS/portable/, and user/."
+    )
+endif()
+
+# 生成最终固件目标：把启动文件、系统文件、驱动文件、RTOS 文件和应用文件一起链接成一个 ELF。
+add_executable(null_proj
+    ${PROJECT_SOURCES}
 )
 
 # 这里集中设置固件目标的属性：
@@ -119,9 +137,10 @@ target_include_directories(null_proj PRIVATE
     "${LIB_DIR}"
     "${CMSIS_CORE_INC_DIR}"
     "${CMSIS_DEVICE_INC_DIR}"
-    "${DRI_DIR}"
+    "${DRIVER_DIR}"
     "${RTOS_INC_DIR}"
     "${RTOS_PORT_DIR}"
+    "${USER_DIR}"
 )
 
 # 这里用了 CMake 的生成器表达式：
