@@ -18,7 +18,26 @@
 #define LSE_VALUE   ((u32)32768)   // 外部低速振荡器频率，单位为 Hz
 #define SYSCLK_FREQ HSE_VALUE      // 系统时钟频率，单位为 Hz
 
-u32 SystemInit();
-u32 SystemCoreClockUpdate(void);
+typedef enum
+{
+    SYSTEM_INIT_SUCCESS = 0, // 系统初始化成功
+    SYSTEM_INIT_TIMEOUT = 1, // 系统初始化超时
+    SYSTEM_INIT_ERROR   = 2  // 系统初始化错误
+} system_init_status_t;
+
+typedef enum
+{
+    CLOCK_SOURCE_HSE = 0, // 使用外部晶振作为系统时钟源
+    CLOCK_SOURCE_HSI = 1, // 使用内部振荡器作为系统时钟源
+    CLOCK_SOURCE_LSE = 2, // 使用外部低速振荡器作为系统时钟源
+    CLOCK_SOURCE_LSI = 3  // 使用内部低速振荡器作为系统时钟源
+} system_clock_source_t;
+
+/* ========== 外部接口 ==========*/
+
+/* 系统初始化函数 */
+system_init_status_t SystemInit();
+/* 更新系统核心时钟源 */
+system_clock_source_t SystemCoreClockUpdate(void);
 
 #endif // SYSTEM_STM32F103C8T6_H

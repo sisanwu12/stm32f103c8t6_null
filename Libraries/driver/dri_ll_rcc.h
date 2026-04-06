@@ -232,6 +232,12 @@ typedef enum
     RCC_PLL_MUL_16 = 0x0EUL, // 16倍频
 } dri_ll_rcc_pll_mul;
 
+typedef enum
+{
+    RCC_PLL_HSE_DIV_1 = 0x00UL, // HSE 不分频
+    RCC_PLL_HSE_DIV_2 = 0x01UL, // HSE 分频 2
+} dri_ll_rcc_pll_hse_div;
+
 /* 字段位移系数 */
 typedef enum
 {
@@ -285,6 +291,7 @@ void                  dri_ll_rcc_pll_source_set(dri_ll_rcc_pll_source source);
 void                  dri_ll_rcc_pll_mul_set(dri_ll_rcc_pll_mul value);
 dri_ll_rcc_pll_source dri_ll_rcc_pll_source_get(void);
 dri_ll_rcc_pll_mul    dri_ll_rcc_pll_mul_get(void);
+void                  dri_ll_rcc_pll_hse_div_set(dri_ll_rcc_pll_hse_div div);
 
 /* ---------- 外设时钟门控 ---------- */
 
