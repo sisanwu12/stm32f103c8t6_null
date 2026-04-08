@@ -37,6 +37,7 @@ void Default_Handler(void)
 {
     while (1)
     {
+        // 只需等待
     }
 }
 
