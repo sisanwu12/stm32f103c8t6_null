@@ -1,170 +1,355 @@
 /**
  * @file dri_ll_gpio.h
- * @author BEAM
+ * @author BEAM，sisanwu12
  * @brief STM32F103 GPIO 底层驱动对外接口，基于寄存器直接访问方式实现。
- * @note 本模块只负责 GPIO 本身的地址映射、模式配置与电平读写，不负责 RCC 时钟开启。
- *       在调用初始化接口或其他 GPIO 访问接口之前，需要先由外部 RCC 模块打开对应 GPIO 端口时钟。
  * @version 0.1
  * @date 2026-03-23
  *
- * @copyright Copyright (c) 2026
- *
  */
-#ifndef DRI_LL_GPIO_H // 防止头文件被重复包含
-#define DRI_LL_GPIO_H // 定义头文件保护宏
+#ifndef __DRI_LL_GPIO_H__
+#define __DRI_LL_GPIO_H__
 
-#include "data_type.h" // 引入团队统一数据类型别名
+#include "data_type.h"
 
-#ifdef __cplusplus // 兼容 C++ 编译器
-extern "C"
-{      // 使用 C 链接方式导出接口
-#endif // 结束 C++ 兼容判断
+/* ========== 数据定义 ==========*/
 
-    /* ==================== 地址定义层 ==================== */ // GPIO 地址与寄存器映射定义层
+/* ---------- GPIO 地址定义层 ---------- */
 
+/* GPIO 基地址 */
 #define DRI_LL_PERIPH_BASE_ADDR      (0x40000000UL) // 片上外设总线基地址
 #define DRI_LL_APB2_PERIPH_BASE_ADDR (0x40010000UL) // APB2 外设总线基地址
 
-#define DRI_LL_AFIO_BASE_ADDR (0x40010000UL) // AFIO 起始地址
-#define DRI_LL_EXTI_BASE_ADDR (0x40010400UL) // EXTI 起始地址
-
-#define DRI_LL_GPIO_PORT_SPAN  (0x00000400UL) // 单个 GPIO 端口的地址跨度
+#define DRI_LL_AFIO_BASE_ADDR  (0x40010000UL) // AFIO 起始地址
+#define DRI_LL_EXTI_BASE_ADDR  (0x40010400UL) // EXTI 起始地址
 #define DRI_LL_GPIOA_BASE_ADDR (0x40010800UL) // GPIOA 起始地址
 #define DRI_LL_GPIOB_BASE_ADDR (0x40010C00UL) // GPIOB 起始地址
 #define DRI_LL_GPIOC_BASE_ADDR (0x40011000UL) // GPIOC 起始地址
 #define DRI_LL_GPIOD_BASE_ADDR (0x40011400UL) // GPIOD 起始地址
 #define DRI_LL_GPIOE_BASE_ADDR (0x40011800UL) // GPIOE 起始地址
 
-#define DRI_LL_GPIO_CRL_OFFSET  (0x00UL) // GPIO CRL 寄存器偏移
-#define DRI_LL_GPIO_CRH_OFFSET  (0x04UL) // GPIO CRH 寄存器偏移
-#define DRI_LL_GPIO_IDR_OFFSET  (0x08UL) // GPIO IDR 寄存器偏移
-#define DRI_LL_GPIO_ODR_OFFSET  (0x0CUL) // GPIO ODR 寄存器偏移
-#define DRI_LL_GPIO_BSRR_OFFSET (0x10UL) // GPIO BSRR 寄存器偏移
-#define DRI_LL_GPIO_BRR_OFFSET  (0x14UL) // GPIO BRR 寄存器偏移
-#define DRI_LL_GPIO_LCKR_OFFSET (0x18UL) // GPIO LCKR 寄存器偏移
+/* GPIO 寄存器偏移地址 */
+#define DRI_LL_GPIO_CRL_OFFSET  0x00UL // GPIO 低位引脚配置寄存器
+#define DRI_LL_GPIO_CRH_OFFSET  0x04UL // GPIO 高位引脚配置寄存器
+#define DRI_LL_GPIO_IDR_OFFSET  0x08UL // GPIO 输入数据寄存器
+#define DRI_LL_GPIO_ODR_OFFSET  0x0CUL // GPIO 输出数据寄存器
+#define DRI_LL_GPIO_BSRR_OFFSET 0x10UL // GPIO 位设置/复位寄存器
+#define DRI_LL_GPIO_BRR_OFFSET  0x14UL // GPIO 位复位寄存器
+#define DRI_LL_GPIO_LCKR_OFFSET 0x18UL // GPIO 配置锁定寄存器
 
-#define DRI_LL_GPIO_PIN_COUNT (16U) // 每个 GPIO 端口拥有 16 个引脚
+/* ---------- 寄存器位定义 ---------- */
 
-    typedef struct // GPIO 寄存器映射结构体
-    {
-        volatile u32 CRL;  // 引脚 0~7 配置寄存器
-        volatile u32 CRH;  // 引脚 8~15 配置寄存器
-        volatile u32 IDR;  // 输入数据寄存器
-        volatile u32 ODR;  // 输出数据寄存器
-        volatile u32 BSRR; // 位置位/复位寄存器
-        volatile u32 BRR;  // 端口位复位寄存器
-        volatile u32 LCKR; // 配置锁定寄存器
-    } dri_ll_gpio_reg_t;   // GPIO 寄存器映射类型
+/* crl 低位(0~7) 引脚配置寄存器位定义 */
+typedef enum
+{
+    GPIO_CRL_MODE0_0 = (1UL << 0),                            // 引脚 0 MODE 位 0
+    GPIO_CRL_MODE0_1 = (1UL << 1),                            // 引脚 0 MODE 位 1
+    GPIO_CRL_MODE0   = (GPIO_CRL_MODE0_0 | GPIO_CRL_MODE0_1), // 引脚 0 MODE 位掩码
 
-#define DRI_LL_GPIOA ((dri_ll_gpio_reg_t*)DRI_LL_GPIOA_BASE_ADDR) // GPIOA 寄存器入口
-#define DRI_LL_GPIOB ((dri_ll_gpio_reg_t*)DRI_LL_GPIOB_BASE_ADDR) // GPIOB 寄存器入口
-#define DRI_LL_GPIOC ((dri_ll_gpio_reg_t*)DRI_LL_GPIOC_BASE_ADDR) // GPIOC 寄存器入口
-#define DRI_LL_GPIOD ((dri_ll_gpio_reg_t*)DRI_LL_GPIOD_BASE_ADDR) // GPIOD 寄存器入口
-#define DRI_LL_GPIOE ((dri_ll_gpio_reg_t*)DRI_LL_GPIOE_BASE_ADDR) // GPIOE 寄存器入口
+    GPIO_CRL_CNF0_0 = (1UL << 2),                          // 引脚 0 CNF 位 0
+    GPIO_CRL_CNF0_1 = (1UL << 3),                          // 引脚 0 CNF 位 1
+    GPIO_CRL_CNF0   = (GPIO_CRL_CNF0_0 | GPIO_CRL_CNF0_1), // 引脚 0 CNF 位掩码
 
-    /* ==================== 基础操作层 ==================== */ // GPIO 基础寄存器操作层
+    GPIO_CRL_MODE1_0 = (1UL << 4),                            // 引脚 1 MODE 位 0
+    GPIO_CRL_MODE1_1 = (1UL << 5),                            // 引脚 1 MODE 位 1
+    GPIO_CRL_MODE1   = (GPIO_CRL_MODE1_0 | GPIO_CRL_MODE1_1), // 引脚 1 MODE 位掩码
 
-    typedef enum // GPIO 端口枚举
-    {
-        DRI_LL_GPIO_PORT_A = 0U, // 端口 A
-        DRI_LL_GPIO_PORT_B = 1U, // 端口 B
-        DRI_LL_GPIO_PORT_C = 2U, // 端口 C
-        DRI_LL_GPIO_PORT_D = 3U, // 端口 D
-        DRI_LL_GPIO_PORT_E = 4U, // 端口 E
-    } dri_ll_gpio_port_t;        // GPIO 端口类型
+    GPIO_CRL_CNF1_0 = (1UL << 6),                          // 引脚 1 CNF 位 0
+    GPIO_CRL_CNF1_1 = (1UL << 7),                          // 引脚 1 CNF 位 1
+    GPIO_CRL_CNF1   = (GPIO_CRL_CNF1_0 | GPIO_CRL_CNF1_1), // 引脚 1 CNF 位掩码
 
-    typedef enum // GPIO 引脚编号枚举
-    {
-        DRI_LL_GPIO_PIN_0  = 0U,  // 引脚 0
-        DRI_LL_GPIO_PIN_1  = 1U,  // 引脚 1
-        DRI_LL_GPIO_PIN_2  = 2U,  // 引脚 2
-        DRI_LL_GPIO_PIN_3  = 3U,  // 引脚 3
-        DRI_LL_GPIO_PIN_4  = 4U,  // 引脚 4
-        DRI_LL_GPIO_PIN_5  = 5U,  // 引脚 5
-        DRI_LL_GPIO_PIN_6  = 6U,  // 引脚 6
-        DRI_LL_GPIO_PIN_7  = 7U,  // 引脚 7
-        DRI_LL_GPIO_PIN_8  = 8U,  // 引脚 8
-        DRI_LL_GPIO_PIN_9  = 9U,  // 引脚 9
-        DRI_LL_GPIO_PIN_10 = 10U, // 引脚 10
-        DRI_LL_GPIO_PIN_11 = 11U, // 引脚 11
-        DRI_LL_GPIO_PIN_12 = 12U, // 引脚 12
-        DRI_LL_GPIO_PIN_13 = 13U, // 引脚 13
-        DRI_LL_GPIO_PIN_14 = 14U, // 引脚 14
-        DRI_LL_GPIO_PIN_15 = 15U, // 引脚 15
-    } dri_ll_gpio_pin_t;          // GPIO 引脚类型
+    GPIO_CRL_MODE2_0 = (1UL << 8),                            // 引脚 2 MODE 位 0
+    GPIO_CRL_MODE2_1 = (1UL << 9),                            // 引脚 2 MODE 位 1
+    GPIO_CRL_MODE2   = (GPIO_CRL_MODE2_0 | GPIO_CRL_MODE2_1), // 引脚 2 MODE 位掩码
 
-    dri_ll_gpio_reg_t*
-         dri_ll_gpio_get_reg(dri_ll_gpio_port_t port);       // 根据端口编号获取 GPIO 寄存器入口
-    u16  dri_ll_gpio_get_pin_mask(dri_ll_gpio_pin_t pin);    // 根据引脚编号生成位掩码
-    void dri_ll_gpio_config_pin_raw(dri_ll_gpio_port_t port, // 直接写入指定引脚的 4bit 配置字段
-                                    dri_ll_gpio_pin_t pin, u32 cfg_bits);
-    void dri_ll_gpio_write_mask_raw(dri_ll_gpio_port_t port, // 通过 BSRR 原子写入置位和复位掩码
-                                    u16 set_mask, u16 reset_mask);
-    u16  dri_ll_gpio_read_input_raw(dri_ll_gpio_port_t port);  // 读取整个端口的 IDR 原始值
-    u16  dri_ll_gpio_read_output_raw(dri_ll_gpio_port_t port); // 读取整个端口的 ODR 原始值
-    void dri_ll_gpio_write_output_raw(dri_ll_gpio_port_t port, // 直接写入整个端口的 ODR 值
-                                      u16                value);
+    GPIO_CRL_CNF2_0 = (1UL << 10),                         // 引脚 2 CNF 位 0
+    GPIO_CRL_CNF2_1 = (1UL << 11),                         // 引脚 2 CNF 位 1
+    GPIO_CRL_CNF2   = (GPIO_CRL_CNF2_0 | GPIO_CRL_CNF2_1), // 引脚 2 CNF 位掩码
 
-    /* ==================== 用户接口层 ==================== */ // GPIO 对外使用接口层
+    GPIO_CRL_MODE3_0 = (1UL << 12),                           // 引脚 3 MODE 位 0
+    GPIO_CRL_MODE3_1 = (1UL << 13),                           // 引脚 3 MODE 位 1
+    GPIO_CRL_MODE3   = (GPIO_CRL_MODE3_0 | GPIO_CRL_MODE3_1), // 引脚 3 MODE 位掩码
 
-    typedef enum // GPIO 输出电平枚举
-    {
-        GPIO_LEVEL_LOW  = 0U, // 低电平
-        GPIO_LEVEL_HIGH = 1U, // 高电平
-    } dri_ll_gpio_level_t;    // GPIO 电平类型
+    GPIO_CRL_CNF3_0 = (1UL << 14),                         // 引脚 3 CNF 位 0
+    GPIO_CRL_CNF3_1 = (1UL << 15),                         // 引脚 3 CNF 位 1
+    GPIO_CRL_CNF3   = (GPIO_CRL_CNF3_0 | GPIO_CRL_CNF3_1), // 引脚 3 CNF 位掩码
 
-    typedef enum // GPIO 模式枚举
-    {
-        GPIO_MODE_ANALOG          = 0U, // 模拟输入
-        GPIO_MODE_INPUT_FLOATING  = 1U, // 浮空输入
-        GPIO_MODE_INPUT_PULL_UP   = 2U, // 上拉输入
-        GPIO_MODE_INPUT_PULL_DOWN = 3U, // 下拉输入
-        GPIO_MODE_OUTPUT_PP       = 4U, // 通用推挽输出
-        GPIO_MODE_OUTPUT_OD       = 5U, // 通用开漏输出
-        GPIO_MODE_AF_PP           = 6U, // 复用推挽输出
-        GPIO_MODE_AF_OD           = 7U, // 复用开漏输出
-    } dri_ll_gpio_mode_t;               // GPIO 模式类型
+    GPIO_CRL_MODE4_0 = (1UL << 16),                           // 引脚 4 MODE 位 0
+    GPIO_CRL_MODE4_1 = (1UL << 17),                           // 引脚 4 MODE 位 1
+    GPIO_CRL_MODE4   = (GPIO_CRL_MODE4_0 | GPIO_CRL_MODE4_1), // 引脚 4 MODE 位掩码
 
-    typedef enum // GPIO 输出速度枚举
-    {
-        GPIO_SPEED_NONE  = 0U, // 不使用输出速度
-        GPIO_SPEED_2MHZ  = 1U, // 输出速度 2MHz
-        GPIO_SPEED_10MHZ = 2U, // 输出速度 10MHz
-        GPIO_SPEED_50MHZ = 3U, // 输出速度 50MHz
-    } dri_ll_gpio_speed_t;     // GPIO 输出速度类型
+    GPIO_CRL_CNF4_0 = (1UL << 18),                         // 引脚 4 CNF 位 0
+    GPIO_CRL_CNF4_1 = (1UL << 19),                         // 引脚 4 CNF 位 1
+    GPIO_CRL_CNF4   = (GPIO_CRL_CNF4_0 | GPIO_CRL_CNF4_1), // 引脚 4 CNF 位掩码
 
-    typedef struct // GPIO 初始化参数结构体
-    {
-        dri_ll_gpio_port_t  port;          // 目标 GPIO 端口
-        dri_ll_gpio_pin_t   pin;           // 目标 GPIO 引脚
-        dri_ll_gpio_mode_t  mode;          // GPIO 工作模式
-        dri_ll_gpio_speed_t speed;         // 输出速度，仅输出模式下有效
-        dri_ll_gpio_level_t initial_level; // 输出初始电平，仅输出模式下有效
-    } dri_ll_gpio_init_t;                  // GPIO 初始化参数类型
+    GPIO_CRL_MODE5_0 = (1UL << 20),                           // 引脚 5 MODE 位 0
+    GPIO_CRL_MODE5_1 = (1UL << 21),                           // 引脚 5 MODE 位 1
+    GPIO_CRL_MODE5   = (GPIO_CRL_MODE5_0 | GPIO_CRL_MODE5_1), // 引脚 5 MODE 位掩码
 
-    void
-         dri_ll_gpio_init(const dri_ll_gpio_init_t*
-                              config); // 初始化一个 GPIO 引脚，调用前需先由外部 RCC 模块打开端口时钟
-    void dri_ll_gpio_write_pin(dri_ll_gpio_port_t port, // 写一个 GPIO 引脚电平
-                               dri_ll_gpio_pin_t pin, dri_ll_gpio_level_t level);
-    void dri_ll_gpio_set_pin(dri_ll_gpio_port_t port,
-                             dri_ll_gpio_pin_t  pin); // 将一个 GPIO 引脚置高
-    void dri_ll_gpio_reset_pin(dri_ll_gpio_port_t port,
-                               dri_ll_gpio_pin_t  pin); // 将一个 GPIO 引脚置低
-    void dri_ll_gpio_toggle_pin(dri_ll_gpio_port_t port,
-                                dri_ll_gpio_pin_t  pin); // 翻转一个 GPIO 引脚输出状态
-    dri_ll_gpio_level_t
-    dri_ll_gpio_read_input_pin(dri_ll_gpio_port_t port, // 读取一个 GPIO 引脚输入电平
-                               dri_ll_gpio_pin_t  pin);
-    dri_ll_gpio_level_t
-         dri_ll_gpio_read_output_pin(dri_ll_gpio_port_t port, // 读取一个 GPIO 引脚输出电平
-                                     dri_ll_gpio_pin_t  pin);
-    u16  dri_ll_gpio_read_input_port(dri_ll_gpio_port_t port);       // 读取整个端口输入值
-    u16  dri_ll_gpio_read_output_port(dri_ll_gpio_port_t port);      // 读取整个端口输出值
-    void dri_ll_gpio_write_port(dri_ll_gpio_port_t port, u16 value); // 写整个端口输出值
+    GPIO_CRL_CNF5_0 = (1UL << 22),                         // 引脚 5 CNF 位 0
+    GPIO_CRL_CNF5_1 = (1UL << 23),                         // 引脚 5 CNF 位 1
+    GPIO_CRL_CNF5   = (GPIO_CRL_CNF5_0 | GPIO_CRL_CNF5_1), // 引脚 5 CNF 位掩码
 
-#ifdef __cplusplus // 兼容 C++ 编译器
-} // 结束 C 链接方式导出
-#endif // 结束 C++ 兼容判断
+    GPIO_CRL_MODE6_0 = (1UL << 24),                           // 引脚 6 MODE 位 0
+    GPIO_CRL_MODE6_1 = (1UL << 25),                           // 引脚 6 MODE 位 1
+    GPIO_CRL_MODE6   = (GPIO_CRL_MODE6_0 | GPIO_CRL_MODE6_1), // 引脚 6 MODE 位掩码
 
-#endif // 结束头文件保护
+    GPIO_CRL_CNF6_0 = (1UL << 26),                         // 引脚 6 CNF 位 0
+    GPIO_CRL_CNF6_1 = (1UL << 27),                         // 引脚 6 CNF 位 1
+    GPIO_CRL_CNF6   = (GPIO_CRL_CNF6_0 | GPIO_CRL_CNF6_1), // 引脚 6 CNF 位掩码
+
+    GPIO_CRL_MODE7_0 = (1UL << 28),                           // 引脚 7 MODE 位 0
+    GPIO_CRL_MODE7_1 = (1UL << 29),                           // 引脚 7 MODE 位 1
+    GPIO_CRL_MODE7   = (GPIO_CRL_MODE7_0 | GPIO_CRL_MODE7_1), // 引脚 7 MODE 位掩码
+
+    GPIO_CRL_CNF7_0 = (1UL << 30),                        // 引脚 7 CNF 位 0
+    GPIO_CRL_CNF7_1 = (1UL << 31),                        // 引脚 7 CNF 位 1
+    GPIO_CRL_CNF7   = (GPIO_CRL_CNF7_0 | GPIO_CRL_CNF7_1) // 引脚 7 CNF 位掩码
+} dri_ll_gpio_crl_bits;
+
+/* crh 高位(8~15) 引脚配置寄存器位定义 */
+typedef enum
+{
+    GPIO_CRL_MODE8_0 = (1UL << 0),                            // 引脚 8 MODE 位 0
+    GPIO_CRL_MODE8_1 = (1UL << 1),                            // 引脚 8 MODE 位 1
+    GPIO_CRL_MODE8   = (GPIO_CRL_MODE8_0 | GPIO_CRL_MODE8_1), // 引脚 8 MODE 位掩码
+
+    GPIO_CRL_CNF8_0 = (1UL << 2),                          // 引脚 8 CNF 位 0
+    GPIO_CRL_CNF8_1 = (1UL << 3),                          // 引脚 8 CNF 位 1
+    GPIO_CRL_CNF8   = (GPIO_CRL_CNF8_0 | GPIO_CRL_CNF8_1), // 引脚 8 CNF 位掩码
+
+    GPIO_CRL_MODE9_0 = (1UL << 4),                            // 引脚 9 MODE 位 0
+    GPIO_CRL_MODE9_1 = (1UL << 5),                            // 引脚 9 MODE 位 1
+    GPIO_CRL_MODE9   = (GPIO_CRL_MODE9_0 | GPIO_CRL_MODE9_1), // 引脚 9 MODE 位掩码
+
+    GPIO_CRL_CNF9_0 = (1UL << 6),                          // 引脚 9 CNF 位 0
+    GPIO_CRL_CNF9_1 = (1UL << 7),                          // 引脚 9 CNF 位 1
+    GPIO_CRL_CNF9   = (GPIO_CRL_CNF9_0 | GPIO_CRL_CNF9_1), // 引脚 9 CNF 位掩码
+
+    GPIO_CRL_MODE10_0 = (1UL << 8),                              // 引脚 10 MODE 位 0
+    GPIO_CRL_MODE10_1 = (1UL << 9),                              // 引脚 10 MODE 位 1
+    GPIO_CRL_MODE10   = (GPIO_CRL_MODE10_0 | GPIO_CRL_MODE10_1), // 引脚 10 MODE 位掩码
+
+    GPIO_CRL_CNF10_0 = (1UL << 10),                           // 引脚 10 CNF 位 0
+    GPIO_CRL_CNF10_1 = (1UL << 11),                           // 引脚 10 CNF 位 1
+    GPIO_CRL_CNF10   = (GPIO_CRL_CNF10_0 | GPIO_CRL_CNF10_1), // 引脚 10 CNF 位掩码
+
+    GPIO_CRL_MODE11_0 = (1UL << 12),                             // 引脚 11 MODE 位 0
+    GPIO_CRL_MODE11_1 = (1UL << 13),                             // 引脚 11 MODE 位 1
+    GPIO_CRL_MODE11   = (GPIO_CRL_MODE11_0 | GPIO_CRL_MODE11_1), // 引脚 11 MODE 位掩码
+
+    GPIO_CRL_CNF11_0 = (1UL << 14),                           // 引脚 11 CNF 位 0
+    GPIO_CRL_CNF11_1 = (1UL << 15),                           // 引脚 11 CNF 位 1
+    GPIO_CRL_CNF11   = (GPIO_CRL_CNF11_0 | GPIO_CRL_CNF11_1), // 引脚 11 CNF 位掩码
+
+    GPIO_CRL_MODE12_0 = (1UL << 16),                             // 引脚 12 MODE 位 0
+    GPIO_CRL_MODE12_1 = (1UL << 17),                             // 引脚 12 MODE 位 1
+    GPIO_CRL_MODE12   = (GPIO_CRL_MODE12_0 | GPIO_CRL_MODE12_1), // 引脚 12 MODE 位掩码
+
+    GPIO_CRL_CNF12_0 = (1UL << 18),                           // 引脚 12 CNF 位 0
+    GPIO_CRL_CNF12_1 = (1UL << 19),                           // 引脚 12 CNF 位 1
+    GPIO_CRL_CNF12   = (GPIO_CRL_CNF12_0 | GPIO_CRL_CNF12_1), // 引脚 12 CNF 位掩码
+
+    GPIO_CRL_MODE13_0 = (1UL << 20),                             // 引脚 13 MODE 位 0
+    GPIO_CRL_MODE13_1 = (1UL << 21),                             // 引脚 13 MODE 位 1
+    GPIO_CRL_MODE13   = (GPIO_CRL_MODE13_0 | GPIO_CRL_MODE13_1), // 引脚 13 MODE 位掩码
+
+    GPIO_CRL_CNF13_0 = (1UL << 22),                           // 引脚 13 CNF 位 0
+    GPIO_CRL_CNF13_1 = (1UL << 23),                           // 引脚 13 CNF 位 1
+    GPIO_CRL_CNF13   = (GPIO_CRL_CNF13_0 | GPIO_CRL_CNF13_1), // 引脚 13 CNF 位掩码
+
+    GPIO_CRL_MODE14_0 = (1UL << 24),                             // 引脚 14 MODE 位 0
+    GPIO_CRL_MODE14_1 = (1UL << 25),                             // 引脚 14 MODE 位 1
+    GPIO_CRL_MODE14   = (GPIO_CRL_MODE14_0 | GPIO_CRL_MODE14_1), // 引脚 14 MODE 位掩码
+
+    GPIO_CRL_CNF14_0 = (1UL << 26),                           // 引脚 14 CNF 位 0
+    GPIO_CRL_CNF14_1 = (1UL << 27),                           // 引脚 14 CNF 位 1
+    GPIO_CRL_CNF14   = (GPIO_CRL_CNF14_0 | GPIO_CRL_CNF14_1), // 引脚 14 CNF 位掩码
+
+    GPIO_CRL_MODE15_0 = (1UL << 28),                             // 引脚 15 MODE 位 0
+    GPIO_CRL_MODE15_1 = (1UL << 29),                             // 引脚 15 MODE 位 1
+    GPIO_CRL_MODE15   = (GPIO_CRL_MODE15_0 | GPIO_CRL_MODE15_1), // 引脚 15 MODE 位掩码
+
+    GPIO_CRL_CNF15_0 = (1UL << 30),                          // 引脚 15 CNF 位 0
+    GPIO_CRL_CNF15_1 = (1UL << 31),                          // 引脚 15 CNF 位 1
+    GPIO_CRL_CNF15   = (GPIO_CRL_CNF15_0 | GPIO_CRL_CNF15_1) // 引脚 15 CNF 位掩码
+} dri_ll_gpio_crh_bits;
+
+/* idr 输入数据寄存器位定义 */
+typedef enum
+{
+    GPIO_IDR_PIN0  = (1UL << 0),  // 引脚 0  输入数据位
+    GPIO_IDR_PIN1  = (1UL << 1),  // 引脚 1  输入数据位
+    GPIO_IDR_PIN2  = (1UL << 2),  // 引脚 2  输入数据位
+    GPIO_IDR_PIN3  = (1UL << 3),  // 引脚 3  输入数据位
+    GPIO_IDR_PIN4  = (1UL << 4),  // 引脚 4  输入数据位
+    GPIO_IDR_PIN5  = (1UL << 5),  // 引脚 5  输入数据位
+    GPIO_IDR_PIN6  = (1UL << 6),  // 引脚 6  输入数据位
+    GPIO_IDR_PIN7  = (1UL << 7),  // 引脚 7  输入数据位
+    GPIO_IDR_PIN8  = (1UL << 8),  // 引脚 8  输入数据位
+    GPIO_IDR_PIN9  = (1UL << 9),  // 引脚 9  输入数据位
+    GPIO_IDR_PIN10 = (1UL << 10), // 引脚 10 输入数据位
+    GPIO_IDR_PIN11 = (1UL << 11), // 引脚 11 输入数据位
+    GPIO_IDR_PIN12 = (1UL << 12), // 引脚 12 输入数据位
+    GPIO_IDR_PIN13 = (1UL << 13), // 引脚 13 输入数据位
+    GPIO_IDR_PIN14 = (1UL << 14), // 引脚 14 输入数据位
+    GPIO_IDR_PIN15 = (1UL << 15)  // 引脚 15 输入数据位
+} dri_ll_gpio_idr_bits;
+
+/* odr 输出数据寄存器位定义 */
+typedef enum
+{
+    GPIO_ODR_PIN0  = (1UL << 0),  // 引脚 0  输出数据位
+    GPIO_ODR_PIN1  = (1UL << 1),  // 引脚 1  输出数据位
+    GPIO_ODR_PIN2  = (1UL << 2),  // 引脚 2  输出数据位
+    GPIO_ODR_PIN3  = (1UL << 3),  // 引脚 3  输出数据位
+    GPIO_ODR_PIN4  = (1UL << 4),  // 引脚 4  输出数据位
+    GPIO_ODR_PIN5  = (1UL << 5),  // 引脚 5  输出数据位
+    GPIO_ODR_PIN6  = (1UL << 6),  // 引脚 6  输出数据位
+    GPIO_ODR_PIN7  = (1UL << 7),  // 引脚 7  输出数据位
+    GPIO_ODR_PIN8  = (1UL << 8),  // 引脚 8  输出数据位
+    GPIO_ODR_PIN9  = (1UL << 9),  // 引脚 9  输出数据位
+    GPIO_ODR_PIN10 = (1UL << 10), // 引脚 10 输出数据位
+    GPIO_ODR_PIN11 = (1UL << 11), // 引脚 11 输出数据位
+    GPIO_ODR_PIN12 = (1UL << 12), // 引脚 12 输出数据位
+    GPIO_ODR_PIN13 = (1UL << 13), // 引脚 13 输出数据位
+    GPIO_ODR_PIN14 = (1UL << 14), // 引脚 14 输出数据位
+    GPIO_ODR_PIN15 = (1UL << 15)  // 引脚 15 输出数据位
+} dri_ll_gpio_odr_bits;
+
+/* bsrr 位设置/复位寄存器 */
+typedef enum
+{
+    GPIO_BSRR_BS0  = (1UL << 0),  // 引脚 0  位置位
+    GPIO_BSRR_BS1  = (1UL << 1),  // 引脚 1  位置位
+    GPIO_BSRR_BS2  = (1UL << 2),  // 引脚 2  位置位
+    GPIO_BSRR_BS3  = (1UL << 3),  // 引脚 3  位置位
+    GPIO_BSRR_BS4  = (1UL << 4),  // 引脚 4  位置位
+    GPIO_BSRR_BS5  = (1UL << 5),  // 引脚 5  位置位
+    GPIO_BSRR_BS6  = (1UL << 6),  // 引脚 6  位置位
+    GPIO_BSRR_BS7  = (1UL << 7),  // 引脚 7  位置位
+    GPIO_BSRR_BS8  = (1UL << 8),  // 引脚 8  位置位
+    GPIO_BSRR_BS9  = (1UL << 9),  // 引脚 9  位置位
+    GPIO_BSRR_BS10 = (1UL << 10), // 引脚 10 位置位
+    GPIO_BSRR_BS11 = (1UL << 11), // 引脚 11 位置位
+    GPIO_BSRR_BS12 = (1UL << 12), // 引脚 12 位置位
+    GPIO_BSRR_BS13 = (1UL << 13), // 引脚 13 位置位
+    GPIO_BSRR_BS14 = (1UL << 14), // 引脚 14 位置位
+    GPIO_BSRR_BS15 = (1UL << 15)  // 引脚 15 位置位
+} dri_ll_gpio_bsrr_bits;
+
+/* brr 位复位寄存器 */
+typedef enum
+{
+    GPIO_BRR_BR0  = (1UL << 0),  // 引脚 0  位复位
+    GPIO_BRR_BR1  = (1UL << 1),  // 引脚 1  位复位
+    GPIO_BRR_BR2  = (1UL << 2),  // 引脚 2  位复位
+    GPIO_BRR_BR3  = (1UL << 3),  // 引脚 3  位复位
+    GPIO_BRR_BR4  = (1UL << 4),  // 引脚 4  位复位
+    GPIO_BRR_BR5  = (1UL << 5),  // 引脚 5  位复位
+    GPIO_BRR_BR6  = (1UL << 6),  // 引脚 6  位复位
+    GPIO_BRR_BR7  = (1UL << 7),  // 引脚 7  位复位
+    GPIO_BRR_BR8  = (1UL << 8),  // 引脚 8  位复位
+    GPIO_BRR_BR9  = (1UL << 9),  // 引脚 9  位复位
+    GPIO_BRR_BR10 = (1UL << 10), // 引脚 10 位复位
+    GPIO_BRR_BR11 = (1UL << 11), // 引脚 11 位复位
+    GPIO_BRR_BR12 = (1UL << 12), // 引脚 12 位复位
+    GPIO_BRR_BR13 = (1UL << 13), // 引脚 13 位复位
+    GPIO_BRR_BR14 = (1UL << 14), // 引脚 14 位复位
+    GPIO_BRR_BR15 = (1UL << 15)  // 引脚 15 位复位
+} dri_ll_gpio_brr_bits;
+
+/* lckr 配置锁定寄存器位定义 */
+typedef enum
+{
+    GPIO_LCKR_LCK0  = (1UL << 0),  // 引脚 0  配置锁定
+    GPIO_LCKR_LCK1  = (1UL << 1),  // 引脚 1  配置锁定
+    GPIO_LCKR_LCK2  = (1UL << 2),  // 引脚 2  配置锁定
+    GPIO_LCKR_LCK3  = (1UL << 3),  // 引脚 3  配置锁定
+    GPIO_LCKR_LCK4  = (1UL << 4),  // 引脚 4  配置锁定
+    GPIO_LCKR_LCK5  = (1UL << 5),  // 引脚 5  配置锁定
+    GPIO_LCKR_LCK6  = (1UL << 6),  // 引脚 6  配置锁定
+    GPIO_LCKR_LCK7  = (1UL << 7),  // 引脚 7  配置锁定
+    GPIO_LCKR_LCK8  = (1UL << 8),  // 引脚 8  配置锁定
+    GPIO_LCKR_LCK9  = (1UL << 9),  // 引脚 9  配置锁定
+    GPIO_LCKR_LCK10 = (1UL << 10), // 引脚 10 配置锁定
+    GPIO_LCKR_LCK11 = (1UL << 11), // 引脚 11 配置锁定
+    GPIO_LCKR_LCK12 = (1UL << 12), // 引脚 12 配置锁定
+    GPIO_LCKR_LCK13 = (1UL << 13), // 引脚 13 配置锁定
+    GPIO_LCKR_LCK14 = (1UL << 14), // 引脚 14 配置锁定
+    GPIO_LCKR_LCK15 = (1UL << 15), // 引脚 15 配置锁定
+    GPIO_LCKR_LCKK  = (1UL << 16)  // 锁定键位
+} dri_ll_gpio_reg_t;
+
+/* ---------- 参数 ---------- */
+
+/* GPIO 端口枚举 */
+typedef enum
+{
+    GPIO_PORT_A = 0U, // 端口 A
+    GPIO_PORT_B = 1U, // 端口 B
+    GPIO_PORT_C = 2U, // 端口 C
+    GPIO_PORT_D = 3U, // 端口 D
+    GPIO_PORT_E = 4U, // 端口 E
+} dri_ll_gpio_port_t;
+
+/* GPIO 引脚编号枚举 */
+typedef enum
+{
+    GPIO_PIN_0  = 0U,  // 引脚 0
+    GPIO_PIN_1  = 1U,  // 引脚 1
+    GPIO_PIN_2  = 2U,  // 引脚 2
+    GPIO_PIN_3  = 3U,  // 引脚 3
+    GPIO_PIN_4  = 4U,  // 引脚 4
+    GPIO_PIN_5  = 5U,  // 引脚 5
+    GPIO_PIN_6  = 6U,  // 引脚 6
+    GPIO_PIN_7  = 7U,  // 引脚 7
+    GPIO_PIN_8  = 8U,  // 引脚 8
+    GPIO_PIN_9  = 9U,  // 引脚 9
+    GPIO_PIN_10 = 10U, // 引脚 10
+    GPIO_PIN_11 = 11U, // 引脚 11
+    GPIO_PIN_12 = 12U, // 引脚 12
+    GPIO_PIN_13 = 13U, // 引脚 13
+    GPIO_PIN_14 = 14U, // 引脚 14
+    GPIO_PIN_15 = 15U, // 引脚 15
+} dri_ll_gpio_pin_t;
+
+/* GPIO 输出电平枚举 */
+typedef enum
+{
+    GPIO_LEVEL_LOW  = 0U, // 低电平
+    GPIO_LEVEL_HIGH = 1U, // 高电平
+} dri_ll_gpio_level_t;    // GPIO 电平类型
+
+/* GPIO 模式与输出速度枚举 */
+typedef enum
+{
+    GPIO_MODE_INPUT     = 0U, // 输入模式
+    GPIO_MODE_OUTPUT_10 = 1U, // 输出模式，10MHz
+    GPIO_MODE_OUTPUT_2  = 2U, // 输出模式，2MHz
+    GPIO_MODE_OUTPUT_50 = 3U, // 输出模式，50MHz
+} dri_ll_gpio_mode_t;
+
+typedef enum
+{
+    GPIO_CNF_INPUT_ANALOG = 0U, // 模拟输入
+    GPIO_CNF_INPUT_FLOAT  = 1U, // 浮空输入
+    GPIO_CNF_INPUT_PU_PD  = 2U, // 上拉/下拉输入
+
+    GPIO_CNF_OUTPUT_PP    = 0U, // 推挽输出
+    GPIO_CNF_OUTPUT_OD    = 1U, // 开漏输出
+    GPIO_CNF_OUTPUT_AF_PP = 2U, // 复用推挽输出
+    GPIO_CNF_OUTPUT_AF_OD = 3U, // 复用开漏输出
+} dri_ll_gpio_cnf_t;
+
+/* GPIO 初始化返回值枚举 */
+typedef enum
+{
+    GPIO_INIT_SUCCESS = 0U, // 初始化成功
+    GPIO_INIT_ERROR   = 1U
+
+} dri_ll_gpio_init_ret;
+
+/* ========== 对外接口 ========== */
+
+/* GPIO 初始化函数 */
+#endif /* __DRI_LL_GPIO_H__ */

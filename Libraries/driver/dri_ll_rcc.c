@@ -268,8 +268,8 @@ void dri_ll_rcc_pll_hse_div_set(dri_ll_rcc_pll_hse_div div)
 {
     // HSE 分频设置仅在 PLL 时钟源为 HSE 时有效, 因此调用该函数前请确保 PLL 时钟源已设置为 HSE
     dri_ll_modify_reg(
-        DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET, RCC_CFGR_PLLSRC,
-        (((u32)div << RCC_CFGR_PLLSRC_POS) & RCC_CFGR_PLLSRC)); // 设置 PLLSRC 位中的分频部分
+        DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET, RCC_CFGR_PLLXTPRE,
+        (((u32)div << RCC_CFGR_PLLXTPRE_POS) & RCC_CFGR_PLLXTPRE)); // 设置 PLLXTPRE 位中的分频部分
 }
 
 /* ========== 外设时钟门控 ========== */

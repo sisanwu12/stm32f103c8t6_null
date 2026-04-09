@@ -241,12 +241,13 @@ typedef enum
 /* 字段位移系数 */
 typedef enum
 {
-    RCC_CFGR_SWS_POS    = 2,  // SWS 位位置
-    RCC_CFGR_HPRE_POS   = 4,  // HPRE 位位置
-    RCC_CFGR_PPRE1_POS  = 8,  // PPRE1 位位置
-    RCC_CFGR_PPRE2_POS  = 11, // PPRE2 位位置
-    RCC_CFGR_PLLSRC_POS = 16, // PLLSRC 位位置
-    RCC_CFGR_PLLMUL_POS = 18, // PLLMUL 位位置
+    RCC_CFGR_SWS_POS      = 2,  // SWS 位位置
+    RCC_CFGR_HPRE_POS     = 4,  // HPRE 位位置
+    RCC_CFGR_PPRE1_POS    = 8,  // PPRE1 位位置
+    RCC_CFGR_PPRE2_POS    = 11, // PPRE2 位位置
+    RCC_CFGR_PLLSRC_POS   = 16, // PLLSRC 位位置
+    RCC_CFGR_PLLMUL_POS   = 18, // PLLMUL 位位置
+    RCC_CFGR_PLLXTPRE_POS = 17, // PLLXTPRE 位位置
 } dri_ll_rcc_field_pos;
 
 /* 读取位掩码 */
