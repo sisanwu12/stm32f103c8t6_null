@@ -126,7 +126,7 @@ typedef enum
     RCC_AHB_SDIO  = (1UL << 10), // SDIO 时钟使能位
 } dri_ll_rcc_ahbenr_bits;
 
-/* apb1 低速外设 */
+/* APB1 低速外设 */
 typedef enum
 {
     RCC_APB1_TIM2   = (1UL << 0),  // TIM2 时钟使能位
@@ -146,7 +146,7 @@ typedef enum
     RCC_APB1_DAC    = (1UL << 29), // DAC 时钟使能位
 } dri_ll_rcc_apb1enr_bits;
 
-/* apb2 高速外设 */
+/* APB2 高速外设 */
 typedef enum
 {
     RCC_APB2_AFIO   = (1UL << 0),  // AFIO 时钟使能位

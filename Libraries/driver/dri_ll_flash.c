@@ -55,7 +55,7 @@ void dri_ll_flash_halfcycle_disable(void)
 isENABLE dri_ll_flash_halfcycle_is_enabled(void)
 {
     return (dri_ll_read_reg(DRI_LL_FLASH_BASE_ADDR, DRI_LL_FLASH_ACR_OFFSET) & FLASH_ACR_HLFCYA) !=
-           0U;
+           0U;  
 }
 
 /**
