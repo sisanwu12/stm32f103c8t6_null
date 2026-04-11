@@ -928,9 +928,11 @@ static os_status_t task_prepare_wait_locked(tcb_t *task,
         return OS_STATUS_INVALID_PARAM;
     }
 
-    /* “永久阻塞”等待对象时，任务必须已经挂进某个事件等待链表；
-     * 否则系统既没有 timeout 唤醒点，也没有事件唤醒点，会永久丢失该任务。 */
-    if ((wait_state == TASK_BLOCKED) && (timeout_ticks == OS_WAIT_FOREVER) && (task->event_node.owner == NULL))
+    /* 只要走 TASK_BLOCKED 路径，任务就必须已经挂进某个对象等待链表。
+     * 当前实现里 wait_obj 本身并不会被用来反查 waiter，所以若 event_node
+     * 还没真正挂链，那么这个阻塞最终只可能靠 timeout 返回，无法被对象满足路径唤醒。
+     * 这种“看起来像在等对象，实际上只能超时”的状态必须在入口直接拒绝。 */
+    if ((wait_state == TASK_BLOCKED) && (task->event_node.owner == NULL))
     {
         return OS_STATUS_INVALID_STATE;
     }
