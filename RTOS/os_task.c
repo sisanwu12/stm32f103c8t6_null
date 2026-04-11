@@ -7,29 +7,62 @@
  *
  * @copyright Copyright (c) 2026
  *
- * @note 本文件实现任务生命周期管理、调度与延时处理逻辑。
+ * @note 本文件实现任务生命周期管理、调度、延时处理与阻塞唤醒逻辑。
  */
 
 #include <string.h>
 #include "os_port.h"
 #include "os_task.h"
 
+#define OS_IDLE_TASK_NAME "idle" // 内核自带 idle 任务名称
+#define OS_TICK_COMPARE_HALF_RANGE ((os_tick_t)0x80000000UL) // 基于有符号差值比较时，允许安全比较的最大半区间
+
 /* 全局可运行任务集合，同时包含 TASK_READY 和当前 TASK_RUNNING 任务。 */
 static ready_queue_t g_task_ready_queue;
+/* 全局按唤醒时间排序的 timed-wait 链表，
+ * 统一承载 TASK_SLEEPING 任务和“带超时”的 TASK_BLOCKED 任务。 */
+static list_t g_task_timed_wait_list;
+/* 全局绝对 tick 计数，由 SysTick 路径单调递增。 */
+static volatile os_tick_t g_os_tick = 0U;
 /* 当前正在 CPU 上运行的任务控制块指针。 */
-static tcb_t        *g_current_task = NULL;
+static tcb_t *g_current_task = NULL;
 /* 调度器本次选出的下一个待运行任务控制块指针。 */
-static tcb_t        *g_next_task = NULL;
+static tcb_t *g_next_task = NULL;
 /* 任务系统初始化标志，非 0 表示全局调度状态已经建立。 */
-static uint8_t       g_task_system_initialized = 0U;
+static uint8_t g_task_system_initialized = 0U;
+
+/* 内核私有 idle 任务控制块。 */
+static tcb_t g_idle_task;
+/* 内核私有 idle 任务栈存储区。 */
+static uint32_t g_idle_task_stack[OS_IDLE_TASK_STACK_DEPTH];
 
 static uint8_t ready_queue_priority_is_valid(uint8_t priority);
+static uint8_t task_user_priority_is_valid(uint8_t priority);
 static uint32_t ready_queue_priority_mask(uint8_t priority);
 static os_status_t task_select_next(void);
 static list_t *task_get_ready_list_by_priority(uint8_t priority);
 static uint8_t task_is_known_to_scheduler(const tcb_t *task);
 static uint8_t task_is_valid(const tcb_t *task);
 static os_status_t task_validate_running_task(const tcb_t *task);
+static os_status_t task_validate_init_config(const task_init_config_t *config, uint8_t allow_idle_priority);
+static uint8_t task_normalize_time_slice(uint8_t time_slice);
+static void task_idle_entry(void *param);
+static os_status_t task_create_idle_task(void);
+static os_status_t task_init(tcb_t *task, const task_init_config_t *config, uint8_t allow_idle_priority);
+static uint8_t task_is_in_runnable_queue(const tcb_t *task);
+static uint8_t task_is_in_timed_wait_list(const tcb_t *task);
+static uint8_t task_timeout_is_supported(os_tick_t timeout_ticks);
+static uint8_t task_tick_is_due(os_tick_t current_tick, os_tick_t target_tick);
+static uint8_t task_tick_deadline_is_before(os_tick_t lhs, os_tick_t rhs);
+static void timed_wait_list_insert_ordered(tcb_t *task);
+static os_status_t task_make_runnable_locked(tcb_t *task, task_wait_result_t wait_result);
+static os_status_t task_unblock_locked(tcb_t *task, task_wait_result_t wait_result);
+static os_status_t task_prepare_wait_locked(tcb_t *task,
+                                            task_state_t wait_state,
+                                            void *wait_obj,
+                                            os_tick_t timeout_ticks);
+static os_status_t task_wake_timed_tasks_locked(void);
+static os_status_t task_handle_time_slice_tick_locked(void);
 
 /**
  * @brief 判断任务是否已经处于全局可运行任务集合中。
@@ -40,22 +73,43 @@ static os_status_t task_validate_running_task(const tcb_t *task);
  */
 static uint8_t task_is_in_runnable_queue(const tcb_t *task)
 {
-    /* 先确认这是一个已经完成初始化的合法 TCB，
-     * 避免后面直接读取 priority 或链表归属信息时访问脏数据。 */
+    /* 先确认 task 至少是一个已经完成初始化的合法 TCB；
+     * 否则继续访问它的 priority 或 sched_node 都没有意义。 */
     if (task_is_valid(task) == 0U)
     {
         return 0U;
     }
 
-    /* 只有合法优先级才可能映射到 ready queue 的某一条链表。 */
+    /* runnable 判定依赖“按 priority 映射到哪条 ready list”，
+     * 所以 priority 越界时直接视为“不在 runnable 集合”。 */
     if (ready_queue_priority_is_valid(task->priority) == 0U)
     {
         return 0U;
     }
 
-    /* runnable 集合的判定标准不是看 state 字段，
-     * 而是看调度节点当前是否真的挂在该优先级的 ready list 上。 */
+    /* 当前版本不靠 state 字段判断 runnable，
+     * 而是直接看 sched_node 是否真的挂在对应优先级的 ready list 上。 */
     return (uint8_t)(task->sched_node.owner == &g_task_ready_queue.ready_lists[task->priority]);
+}
+
+/**
+ * @brief 判断任务是否处于 timed-wait 链表中。
+ *
+ * @param task 待检查的任务控制块。
+ *
+ * @return uint8_t 非 0 表示任务当前挂在 timed-wait 链表中，0 表示不在链表中。
+ */
+static uint8_t task_is_in_timed_wait_list(const tcb_t *task)
+{
+    /* 非法 TCB 不可能是 timed-wait 链表里的合法成员。 */
+    if (task_is_valid(task) == 0U)
+    {
+        return 0U;
+    }
+
+    /* timed-wait 的判定标准同样不是看 state，
+     * 而是看 sched_node 当前是否真的归属于 timed-wait 链表。 */
+    return (uint8_t)(task->sched_node.owner == &g_task_timed_wait_list);
 }
 
 /**
@@ -67,13 +121,15 @@ static uint8_t task_is_in_runnable_queue(const tcb_t *task)
  */
 static list_t *task_get_ready_list_by_priority(uint8_t priority)
 {
-    /* 优先级越界时不能返回链表地址，避免调用方拿到非法指针。 */
+    /* 调用方若给了非法优先级，这里不能返回任何链表地址，
+     * 避免上层拿着错误指针继续改 ready queue。 */
     if (ready_queue_priority_is_valid(priority) == 0U)
     {
         return NULL;
     }
 
-    /* 当前 ready queue 采用“每个优先级一条链表”的组织方式。 */
+    /* ready queue 采用“每个优先级一条链表”的组织方式，
+     * 所以合法优先级可以直接映射到对应槽位。 */
     return &g_task_ready_queue.ready_lists[priority];
 }
 
@@ -86,42 +142,39 @@ static list_t *task_get_ready_list_by_priority(uint8_t priority)
  */
 static uint8_t task_is_known_to_scheduler(const tcb_t *task)
 {
-    uint8_t      priority = 0U;
-    const list_t *ready_list = NULL;
-    list_node_t *node     = NULL;
-
-    /* 调度器未初始化时，全局 ready queue 还没有建立，
-     * 此时直接判定“尚未被调度器持有”。 */
+    /* 调度器尚未初始化时，不可能已经正式持有任何任务对象。 */
     if ((task == NULL) || (g_task_system_initialized == 0U))
     {
         return 0U;
     }
 
-    for (priority = 0U; priority < OS_MAX_PRIORITIES; priority++)
+    /* 只有已经初始化过的 TCB，才有资格谈“是否被调度器持有”。 */
+    if (task_is_valid(task) == 0U)
     {
-        /* 位图未置位说明该优先级当前没有 runnable 任务，
-         * 无需进入链表逐个比对。 */
-        if ((g_task_ready_queue.ready_bitmap & ready_queue_priority_mask(priority)) == 0U)
-        {
-            continue;
-        }
-
-        ready_list = &g_task_ready_queue.ready_lists[priority];
-        node = ready_list->head;
-
-        while (node != NULL)
-        {
-            /* 这里按 TCB 地址判重，目的是防止调用方把同一个 TCB
-             * 再次传给 task_create()，从而破坏已有链表结构。 */
-            if (LIST_CONTAINER_OF(node, tcb_t, sched_node) == task)
-            {
-                return 1U;
-            }
-
-            node = node->next;
-        }
+        return 0U;
     }
 
+    /* 当前任务和下一待运行任务都属于调度器正在管理的对象，
+     * 即使它们暂时没有挂在别的链表上，也必须视为“已持有”。 */
+    if ((task == g_current_task) || (task == g_next_task))
+    {
+        return 1U;
+    }
+
+    /* sched_node 只要还挂在某条链表上，就说明这个任务还被 ready/timed-wait 管理着。 */
+    if (task->sched_node.owner != NULL)
+    {
+        return 1U;
+    }
+
+    /* event_node 若挂在某个对象等待链表上，也说明任务仍处于内核调度体系内。 */
+    if (task->event_node.owner != NULL)
+    {
+        return 1U;
+    }
+
+    /* 走到这里说明它既不是 current/next，也没有挂在任何内核链表上，
+     * 可以认为当前没有被调度器持有。 */
     return 0U;
 }
 
@@ -134,13 +187,13 @@ static uint8_t task_is_known_to_scheduler(const tcb_t *task)
  */
 static uint8_t task_is_valid(const tcb_t *task)
 {
-    /* 空指针一定不可能是合法任务。 */
+    /* 空指针一定不可能是一个合法任务控制块。 */
     if (task == NULL)
     {
         return 0U;
     }
 
-    /* 当前版本用 magic 判断 TCB 是否已完成初始化。 */
+    /* 当前版本用 magic 作为“TCB 已完成初始化”的唯一判据。 */
     return (uint8_t)(task->magic == OS_TASK_MAGIC);
 }
 
@@ -153,38 +206,38 @@ static uint8_t task_is_valid(const tcb_t *task)
  */
 static os_status_t task_validate_running_task(const tcb_t *task)
 {
-    /* 调度器全局状态尚未建立时，任何“当前运行任务”语义都不成立。 */
+    /* 调度器全局状态还没建立时，任何“当前正在运行任务”的语义都不成立。 */
     if (g_task_system_initialized == 0U)
     {
         return OS_STATUS_NOT_INITIALIZED;
     }
 
-    /* 当前路径要求必须已经有明确的 current task。 */
+    /* 这条校验路径要求调用方必须给出明确的任务指针。 */
     if (task == NULL)
     {
         return OS_STATUS_INVALID_STATE;
     }
 
-    /* 任务本身必须是一个已经初始化过的合法 TCB。 */
+    /* 首先要确认对象本身是一个合法 TCB，而不是未初始化内存。 */
     if (task_is_valid(task) == 0U)
     {
         return OS_STATUS_INVALID_STATE;
     }
 
-    /* TASK_RUNNING 的任务仍然留在 runnable 集合中，
-     * 所以这里还要确认它确实还挂在 ready queue 里。 */
+    /* 运行中的任务仍然留在 runnable 集合里，
+     * 所以这里还要确认它确实挂在 ready queue 中。 */
     if (task_is_in_runnable_queue(task) == 0U)
     {
         return OS_STATUS_INVALID_STATE;
     }
 
-    /* 只有 state 明确为 TASK_RUNNING，才能走 yield/tick 这类
-     * 以“当前正在占用 CPU 的任务”为前提的逻辑。 */
+    /* 最后再收紧状态字段，只有显式标记为 TASK_RUNNING 才算通过。 */
     if (task->state != TASK_RUNNING)
     {
         return OS_STATUS_INVALID_STATE;
     }
 
+    /* 三层条件都满足后，才能把该任务当作“当前正在运行的任务”继续处理。 */
     return OS_STATUS_OK;
 }
 
@@ -192,10 +245,11 @@ static os_status_t task_validate_running_task(const tcb_t *task)
  * @brief 判断任务初始化配置是否完整且合法。
  *
  * @param config 待检查的任务初始化配置。
+ * @param allow_idle_priority 非 0 表示允许使用保留给 idle 的最低优先级。
  *
  * @return os_status_t 配置合法返回 OS_STATUS_OK，否则返回具体错误码。
  */
-static os_status_t task_validate_init_config(const task_init_config_t *config)
+static os_status_t task_validate_init_config(const task_init_config_t *config, uint8_t allow_idle_priority)
 {
     /* 配置结构本身不能为空。 */
     if (config == NULL)
@@ -215,18 +269,26 @@ static os_status_t task_validate_init_config(const task_init_config_t *config)
         return OS_STATUS_INVALID_STACK;
     }
 
-    /* 栈深度至少要能容纳当前端口约定的最小初始栈帧。 */
+    /* 栈深度至少要满足端口层构造初始异常栈帧的最低需求。 */
     if (config->stack_size < OS_TASK_MIN_STACK_DEPTH)
     {
         return OS_STATUS_INVALID_STACK;
     }
 
-    /* 优先级必须落在 ready bitmap 和 ready_lists 支持的范围内。 */
+    /* 首先检查 priority 是否落在 ready bitmap/ready list 支持的总范围内。 */
     if (ready_queue_priority_is_valid(config->priority) == 0U)
     {
         return OS_STATUS_INVALID_PRIORITY;
     }
 
+    /* 普通任务不允许占用保留给 idle 的最低优先级；
+     * 只有内核内部创建 idle 时，才会把 allow_idle_priority 置 1。 */
+    if ((allow_idle_priority == 0U) && (task_user_priority_is_valid(config->priority) == 0U))
+    {
+        return OS_STATUS_INVALID_PRIORITY;
+    }
+
+    /* 所有初始化前置约束都满足后，配置才算可用。 */
     return OS_STATUS_OK;
 }
 
@@ -239,13 +301,137 @@ static os_status_t task_validate_init_config(const task_init_config_t *config)
  */
 static uint8_t task_normalize_time_slice(uint8_t time_slice)
 {
-    /* 用户传 0 表示“使用系统默认时间片”，不是“关闭时间片”。 */
+    /* 调用方传 0 的约定含义是“使用系统默认时间片”，
+     * 而不是“关闭时间片轮转”。 */
     if (time_slice == 0U)
     {
         return (uint8_t)OS_TASK_DEFAULT_TIME_SLICE;
     }
 
+    /* 其余非 0 值按调用方原样使用。 */
     return time_slice;
+}
+
+/**
+ * @brief idle 任务入口函数。
+ *
+ * @param param 预留参数，当前未使用。
+ */
+static void task_idle_entry(void *param)
+{
+    /* idle 任务当前不消费任何参数，显式吞掉它以消除未使用告警。 */
+    (void)param;
+
+    /* idle 任务的职责只是保证“系统始终有一个合法 runnable 目标”，
+     * 因此这里保持最简单的永久空转。 */
+    while (1)
+    {
+    }
+}
+
+/**
+ * @brief 创建内核自带的 idle 任务。
+ *
+ * @return os_status_t 创建成功返回 OS_STATUS_OK，否则返回具体错误码。
+ */
+static os_status_t task_create_idle_task(void)
+{
+    os_status_t status = OS_STATUS_OK;
+    /* idle 任务由内核私有 TCB 和私有栈承载，不依赖应用层提供对象。 */
+    task_init_config_t idle_config = {
+        .entry = task_idle_entry,
+        .param = NULL,
+        .stack_base = g_idle_task_stack,
+        .stack_size = OS_IDLE_TASK_STACK_DEPTH,
+        .name = OS_IDLE_TASK_NAME,
+        .priority = OS_IDLE_TASK_PRIORITY,
+        .time_slice = 0U,
+    };
+
+    /* idle 需要合法占用保留的最低优先级，所以这里放开 idle priority 校验。 */
+    status = task_init(&g_idle_task, &idle_config, 1U);
+    if (status != OS_STATUS_OK)
+    {
+        return status;
+    }
+
+    /* 初始化完成后，把 idle 正式放进 runnable 集合，
+     * 这样所有普通任务都阻塞时，调度器仍然能选到它。 */
+    ready_queue_insert_tail(&g_task_ready_queue, &g_idle_task);
+    if (g_idle_task.sched_node.owner != &g_task_ready_queue.ready_lists[OS_IDLE_TASK_PRIORITY])
+    {
+        /* 若 idle 都无法插入 ready queue，就意味着内核基础状态已损坏，
+         * 这里直接把它标为 DELETED 并返回错误。 */
+        g_idle_task.state = TASK_DELETED;
+        return OS_STATUS_INSERT_FAILED;
+    }
+
+    /* 走到这里说明 idle 已经成为系统最底优先级的保底 runnable 任务。 */
+    return OS_STATUS_OK;
+}
+
+/**
+ * @brief 根据配置初始化一个任务控制块，但不将其加入全局可运行任务集合。
+ *
+ * @param task 待初始化的任务控制块。
+ * @param config 任务初始化配置。
+ * @param allow_idle_priority 非 0 表示允许使用保留给 idle 的最低优先级。
+ *
+ * @return os_status_t 初始化成功返回 OS_STATUS_OK，否则返回具体错误码。
+ */
+static os_status_t task_init(tcb_t *task, const task_init_config_t *config, uint8_t allow_idle_priority)
+{
+    os_status_t status = OS_STATUS_OK;
+    uint8_t time_slice = 0U;
+    uint32_t *initial_sp = NULL;
+
+    /* task 指针为空时，调用方甚至没有提供可写的 TCB 存储区。 */
+    if (task == NULL)
+    {
+        return OS_STATUS_INVALID_PARAM;
+    }
+
+    /* 先做纯配置检查，避免把非法参数继续传给端口层。 */
+    status = task_validate_init_config(config, allow_idle_priority);
+    if (status != OS_STATUS_OK)
+    {
+        return status;
+    }
+
+    /* 先归一化时间片配置，再让端口层按 Cortex-M3 规则伪造初始栈帧。 */
+    time_slice = task_normalize_time_slice(config->time_slice);
+    initial_sp = os_port_task_stack_init(config->stack_base, config->stack_size, config->entry, config->param);
+    if (initial_sp == NULL)
+    {
+        return OS_STATUS_INVALID_STACK;
+    }
+
+    /* 用全量清零消掉旧 TCB 内容，避免历史脏数据污染本轮创建。 */
+    (void)memset(task, 0, sizeof(tcb_t));
+
+    /* 下面这组赋值定义了任务的“初始运行上下文”和“等待元数据初值”。 */
+    task->sp = initial_sp;
+    task->stack_base = config->stack_base;
+    task->stack_size = config->stack_size;
+    task->entry = config->entry;
+    task->param = config->param;
+    task->name = config->name;
+    task->magic = OS_TASK_MAGIC;
+    task->wake_tick = 0U;
+    task->wait_obj = NULL;
+    task->wait_result = TASK_WAIT_RESULT_NONE;
+    task->priority = config->priority;
+    task->state = TASK_BLOCKED;
+    task->time_slice = time_slice;
+    task->time_slice_reload = time_slice;
+
+    /* 两个链表节点都必须从“未挂链”状态起步，
+     * 后续才能安全插入 ready queue、timed-wait 或事件等待链表。 */
+    list_node_init(&task->sched_node);
+    list_node_init(&task->event_node);
+
+    /* 这里只完成“静态初始化”，并没有把任务加入 runnable 集合。 */
+    return OS_STATUS_OK;
 }
 
 /**
@@ -255,78 +441,30 @@ static uint8_t task_normalize_time_slice(uint8_t time_slice)
  */
 os_status_t task_system_init(void)
 {
-    /* 建立空的 runnable 集合。 */
-    ready_queue_init(&g_task_ready_queue);
-    /* 启动前还没有 current/next task。 */
-    g_current_task = NULL;
-    g_next_task = NULL;
-    /* 标记调度器全局状态已准备就绪。 */
-    g_task_system_initialized = 1U;
-
-    return OS_STATUS_OK;
-}
-
-/**
- * @brief 根据配置初始化一个任务控制块，但不将其加入全局可运行任务集合。
- *
- * @param task 待初始化的任务控制块。
- * @param config 任务初始化配置。
- *
- * @return os_status_t 初始化成功返回 OS_STATUS_OK，否则返回具体错误码。
- */
-static os_status_t task_init(tcb_t *task, const task_init_config_t *config)
-{
     os_status_t status = OS_STATUS_OK;
-    uint8_t     time_slice = 0U;
-    uint32_t   *initial_sp = NULL;
 
-    /* 创建入口要求调用方提供一个可写的 TCB 存储区。 */
-    if (task == NULL)
+    /* 任务系统只需要初始化一次，重复调用直接返回成功即可。 */
+    if (g_task_system_initialized != 0U)
     {
-        return OS_STATUS_INVALID_PARAM;
+        return OS_STATUS_OK;
     }
 
-    /* 先做纯参数检查，避免把非法配置继续传入端口层。 */
-    status = task_validate_init_config(config);
+    /* 先建立空的 ready queue 和 timed-wait 链表，再清空全局调度指针与时基。 */
+    ready_queue_init(&g_task_ready_queue);
+    list_init(&g_task_timed_wait_list);
+    g_os_tick = 0U;
+    g_current_task = NULL;
+    g_next_task = NULL;
+
+    /* 没有 idle 的话，所有普通任务都阻塞时系统将失去合法 runnable 目标。 */
+    status = task_create_idle_task();
     if (status != OS_STATUS_OK)
     {
         return status;
     }
 
-    /* 先归一化时间片，再交给端口层伪造初始栈帧。 */
-    time_slice = task_normalize_time_slice(config->time_slice);
-    initial_sp = os_port_task_stack_init(config->stack_base, config->stack_size, config->entry, config->param);
-
-    /* 端口层若无法构造初始栈，说明当前栈参数不满足要求。 */
-    if (initial_sp == NULL)
-    {
-        return OS_STATUS_INVALID_STACK;
-    }
-
-    /* 从零清空整个 TCB，确保旧内容不会污染新任务。 */
-    (void)memset(task, 0, sizeof(tcb_t));
-
-    /* 以下字段都是任务创建后的基础运行上下文。 */
-    task->sp               = initial_sp;
-    task->stack_base       = config->stack_base;
-    task->stack_size       = config->stack_size;
-    task->entry            = config->entry;
-    task->param            = config->param;
-    task->name             = config->name;
-    task->magic            = OS_TASK_MAGIC;
-    task->wake_tick        = 0U;
-    task->wait_obj         = NULL;
-    task->priority         = config->priority;
-    /* 任务刚初始化完成时还未进入 runnable 集合，
-     * 所以先放在非运行状态，后续由 ready_queue_insert_tail() 改成 READY。 */
-    task->state            = TASK_BLOCKED;
-    task->time_slice       = time_slice;
-    task->time_slice_reload = time_slice;
-
-    /* 调度链表节点和事件链表节点都必须从“未挂链”状态开始。 */
-    list_node_init(&task->sched_node);
-    list_node_init(&task->event_node);
-
+    /* 到这里为止，调度器的最小全局状态已经建立完成。 */
+    g_task_system_initialized = 1U;
     return OS_STATUS_OK;
 }
 
@@ -343,64 +481,76 @@ static os_status_t task_init(tcb_t *task, const task_init_config_t *config)
 os_status_t task_create(tcb_t *task, const task_init_config_t *config)
 {
     os_status_t status = OS_STATUS_OK;
-    uint8_t     scheduler_running = 0U;
+    uint8_t scheduler_running = 0U;
+    uint32_t primask = 0U;
 
-    /* 创建接口不接受空 TCB 指针。 */
+    /* 创建接口要求调用方明确给出一个可写 TCB。 */
     if (task == NULL)
     {
         return OS_STATUS_INVALID_PARAM;
     }
 
-    /* 首次创建任务时，顺手建立调度器全局状态。 */
+    /* 首次创建普通任务时，顺手把调度器和 idle 一起初始化起来。 */
     if (g_task_system_initialized == 0U)
     {
-        (void)task_system_init();
+        status = task_system_init();
+        if (status != OS_STATUS_OK)
+        {
+            return status;
+        }
     }
 
-    /* 若同一个 TCB 已经被调度器持有，再次创建会破坏 ready queue，
-     * 所以这里必须直接拒绝。 */
+    /* 同一个 TCB 不允许重复交给调度器，否则会破坏 ready queue/timed-wait 结构。 */
     if (task_is_known_to_scheduler(task) != 0U)
     {
         return OS_STATUS_ALREADY_INITIALIZED;
     }
 
-    /* 先完成 TCB 和初始栈的静态初始化。 */
-    status = task_init(task, config);
+    /* 先完成 TCB 和初始栈的静态构造。 */
+    status = task_init(task, config, 0U);
     if (status != OS_STATUS_OK)
     {
         return status;
     }
 
-    /* 创建成功后，再把任务正式放入 runnable 集合。 */
-    ready_queue_insert_tail(&g_task_ready_queue, task);
+    /* 运行期创建任务时，SysTick 也可能在中断态访问同一组 ready list 和 g_next_task。
+     * 因此“插入 ready queue + 重新调度”这一段必须作为一个原子步骤完成。 */
+    primask = os_port_enter_critical();
 
-    /* owner 没有正确落到目标 ready list 上，说明插入失败。 */
+    /* 静态初始化成功后，再把任务正式并入 runnable 集合。 */
+    ready_queue_insert_tail(&g_task_ready_queue, task);
     if (task->sched_node.owner != &g_task_ready_queue.ready_lists[task->priority])
     {
+        /* 若 sched_node 没有正确挂到目标 ready list，就视为插入失败。 */
         task->state = TASK_DELETED;
+        os_port_exit_critical(primask);
         return OS_STATUS_INSERT_FAILED;
     }
 
-    /* 用 current_task 是否存在，区分“系统已在运行”和“还没启动首任务”。 */
+    /* 用 current 是否已存在，区分“系统已运行中”和“还没切入任何任务”的场景。
+     * 这一步也放在临界区里，避免读取到被并发修改中的 current/next 关系。 */
     scheduler_running = (uint8_t)(g_current_task != NULL);
-    /* 插入新任务后立即重跑一次调度，让 g_next_task 与当前 runnable 集合保持一致。 */
+
+    /* 新任务入队后立即重新调度，确保 g_next_task 反映最新 runnable 集合。 */
     status = task_schedule();
 
-    /* 调度器明确判断“无需切换”时，对创建接口统一按成功返回。 */
+    /* 到这里为止，ready list 指针与 g_next_task 都已经稳定，可以安全恢复中断。 */
+    os_port_exit_critical(primask);
+
+    /* 调度器明确表示“当前任务继续运行”时，创建接口按普通成功返回。 */
     if (status == OS_STATUS_NO_CHANGE)
     {
         return OS_STATUS_OK;
     }
 
-    /* 首任务启动前，schedule() 会因为还没有 current task 而返回
-     * SWITCH_REQUIRED，但这里不能把它误报成“运行期抢占”。 */
+    /* 还没启动首任务时，schedule() 返回 SWITCH_REQUIRED 是正常现象，
+     * 这不应该被误报成“运行期发生抢占”。 */
     if ((status == OS_STATUS_SWITCH_REQUIRED) && (scheduler_running == 0U))
     {
         return OS_STATUS_OK;
     }
 
-    /* 其余情况原样向上传递，尤其是运行期创建高优先级任务时的
-     * OS_STATUS_SWITCH_REQUIRED。 */
+    /* 其余情况原样向上传递，尤其是运行期创建高优先级任务时的抢占需求。 */
     return status;
 }
 
@@ -413,22 +563,22 @@ static os_status_t task_select_next(void)
 {
     const tcb_t *selected_task = NULL;
 
-    /* 全局调度器都还没建立时，无法选择 next task。 */
+    /* 调度器全局状态尚未建立时，没有 ready queue 可供选择 next task。 */
     if (g_task_system_initialized == 0U)
     {
         return OS_STATUS_NOT_INITIALIZED;
     }
 
-    /* 最高优先级 ready list 的头节点就是当前应运行的任务。 */
+    /* 最高优先级 ready list 的头节点就是当前应当运行的任务。 */
     selected_task = ready_queue_peek_highest(&g_task_ready_queue);
     if (selected_task == NULL)
     {
-        /* 没有 runnable 任务时，要同步清空 g_next_task。 */
+        /* runnable 集合为空时，要同步清掉 g_next_task，避免残留旧指针。 */
         g_next_task = NULL;
         return OS_STATUS_EMPTY;
     }
 
-    /* 注意：这里只负责“选出谁”，不负责真正切换。 */
+    /* 注意：这里只负责“选出谁该跑”，不负责真正提交 current task。 */
     g_next_task = (tcb_t *)selected_task;
     return OS_STATUS_OK;
 }
@@ -443,27 +593,27 @@ os_status_t task_schedule(void)
 {
     os_status_t status = OS_STATUS_OK;
 
-    /* 先刷新 g_next_task，让它始终反映当前 runnable 集合的最高优先级结果。 */
+    /* 每次 schedule 都先刷新 g_next_task，让它反映最新 runnable 集合。 */
     status = task_select_next();
     if (status != OS_STATUS_OK)
     {
         return status;
     }
 
-    /* current 为空表示系统还没真正切入任何任务，
-     * 但 next 已经选出来了，后续应启动首任务。 */
+    /* current 为空表示系统还没真正切进任何线程，但 next 已经选出来了；
+     * 这正是“需要启动首任务”的典型状态。 */
     if (g_current_task == NULL)
     {
         return OS_STATUS_SWITCH_REQUIRED;
     }
 
-    /* 只要 next 和 current 不是同一个任务，就说明需要做上下文切换。 */
+    /* 只要 next 和 current 不同，就说明这次调度需要真正发生上下文切换。 */
     if (g_next_task != g_current_task)
     {
         return OS_STATUS_SWITCH_REQUIRED;
     }
 
-    /* 走到这里说明“当前任务继续运行”即可。 */
+    /* 走到这里说明当前任务继续运行即可，不需要切换。 */
     return OS_STATUS_NO_CHANGE;
 }
 
@@ -475,120 +625,674 @@ os_status_t task_schedule(void)
 os_status_t task_yield(void)
 {
     os_status_t status = OS_STATUS_OK;
-    list_t     *ready_list = NULL;
+    list_t *ready_list = NULL;
+    uint32_t primask = 0U;
 
-    /* yield 只能由当前正在运行的任务发起。 */
-    status = task_validate_running_task(g_current_task);
-    if (status != OS_STATUS_OK)
-    {
-        return status;
-    }
-
-    /* 取出当前优先级对应的 ready list，后续轮转只在这一条链表内进行。 */
-    ready_list = task_get_ready_list_by_priority(g_current_task->priority);
-    if (ready_list == NULL)
+    /* yield 只允许线程态当前任务主动调用，ISR 没有“当前线程自愿让出 CPU”的语义。 */
+    if (os_port_is_in_interrupt() != 0U)
     {
         return OS_STATUS_INVALID_STATE;
     }
 
-    /* 主动让出 CPU 时，等价于放弃本轮剩余时间片，
-     * 因此把时间片恢复到 reload 值，留给下次再次运行时使用。 */
+    /* 后续会同时读取 current task、ready list 并可能做 rotate，因此先进入临界区。 */
+    primask = os_port_enter_critical();
+
+    /* 先确认当前任务确实还是一个合法 RUNNING 任务。 */
+    status = task_validate_running_task(g_current_task);
+    if (status != OS_STATUS_OK)
+    {
+        os_port_exit_critical(primask);
+        return status;
+    }
+
+    /* 轮转只会发生在“当前任务所属优先级”的那条 ready list 内。 */
+    ready_list = task_get_ready_list_by_priority(g_current_task->priority);
+    if (ready_list == NULL)
+    {
+        os_port_exit_critical(primask);
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* 主动 yield 等价于放弃本轮剩余时间片，所以这里先恢复到 reload 值。 */
     g_current_task->time_slice = g_current_task->time_slice_reload;
 
-    /* 只有当前任务正好在本优先级队头，且确实存在同优先级其他任务时，
-     * 才需要执行“头移到尾”的轮转。 */
+    /* 只有当前任务确实位于本优先级队头，且同优先级还有其他任务时，
+     * 才需要执行一次“头移到尾”的轮转。 */
     if ((ready_list->item_count > 1U) && (ready_list->head == &g_current_task->sched_node))
     {
         ready_queue_rotate(&g_task_ready_queue, g_current_task->priority);
     }
 
-    /* 轮转完成后，重新做一次完整调度决策。 */
+    /* 轮转完成后重新做调度决策，决定是否需要切到同优先级下一个任务。 */
+    status = task_schedule();
+    os_port_exit_critical(primask);
+
+    return status;
+}
+
+/**
+ * @brief 判断一个相对超时值是否落在“半个 tick 空间”内。
+ *
+ * @param timeout_ticks 调用方传入的相对超时 tick 数。
+ *
+ * @return uint8_t 非 0 表示该超时值可安全参与当前的回绕比较逻辑，
+ *                 0 表示该值会破坏有符号差值比较的前提。
+ */
+static uint8_t task_timeout_is_supported(os_tick_t timeout_ticks)
+{
+    /* OS_WAIT_FOREVER 是一个单独语义，不参与 deadline 的数值比较，
+     * 因此这里直接视为“允许”。 */
+    if (timeout_ticks == OS_WAIT_FOREVER)
+    {
+        return 1U;
+    }
+
+    /* 当前 timed-wait 链表和“是否到期”的判断，都依赖 int32_t 差值比较。
+     * 这套比较只在“当前 tick 与目标 deadline 的距离严格小于 0x80000000”
+     * 时才成立，所以必须拒绝 0x80000000 及以上的超时值。 */
+    return (uint8_t)((timeout_ticks > 0U) && (timeout_ticks < OS_TICK_COMPARE_HALF_RANGE));
+}
+
+/**
+ * @brief 判断一个 deadline 是否已经到期。
+ *
+ * @param current_tick 当前绝对 tick。
+ * @param target_tick 目标到期 tick。
+ *
+ * @return uint8_t 非 0 表示 deadline 已到期，0 表示尚未到期。
+ */
+static uint8_t task_tick_is_due(os_tick_t current_tick, os_tick_t target_tick)
+{
+    /* 这里故意使用 int32_t 差值比较来获得“32-bit tick 回绕安全”的到期判断。
+     * 前提是 current_tick 与 target_tick 的距离始终落在半个 tick 空间内，
+     * 调用方必须保证 timeout_ticks < 0x80000000。 */
+    return (uint8_t)(((int32_t)(current_tick - target_tick)) >= 0);
+}
+
+/**
+ * @brief 判断两个未来 deadline 的先后顺序。
+ *
+ * @param lhs 待比较的左操作数 deadline。
+ * @param rhs 待比较的右操作数 deadline。
+ *
+ * @return uint8_t 非 0 表示 lhs 早于 rhs，0 表示 lhs 不早于 rhs。
+ */
+static uint8_t task_tick_deadline_is_before(os_tick_t lhs, os_tick_t rhs)
+{
+    /* timed-wait 链表按 deadline 升序维护时，也复用同一套半区间比较规则。
+     * 只要所有插入的 deadline 都来自“受限的相对超时值”，这里的排序就稳定。 */
+    return (uint8_t)(((int32_t)(lhs - rhs)) < 0);
+}
+
+/**
+ * @brief 将任务按 wake_tick 升序插入 timed-wait 链表。
+ *
+ * @param task 待插入的任务控制块。
+ */
+static void timed_wait_list_insert_ordered(tcb_t *task)
+{
+    list_node_t *current = NULL;
+    tcb_t *current_task = NULL;
+    list_node_t *node = NULL;
+
+    /* 空任务指针说明调用方没有提供合法对象，直接拒绝插入。 */
+    if (task == NULL)
+    {
+        return;
+    }
+
+    node = &task->sched_node;
+
+    /* timed-wait 插入要求 sched_node 目前必须是“未挂链”状态；
+     * 若 owner 非空，说明这个任务还停留在其他链表中，不能重复挂入。 */
+    if (node->owner != NULL)
+    {
+        return;
+    }
+
+    /* 空链表是最简单的情况，首个等待任务直接成为新的队头和队尾。 */
+    if (g_task_timed_wait_list.head == NULL)
+    {
+        (void)list_insert_tail(&g_task_timed_wait_list, node);
+        return;
+    }
+
+    /* 非空链表按 wake_tick 升序扫描，找到第一个 deadline 晚于当前任务的位置，
+     * 这样可以保证“最早到期任务”始终待在队头。 */
+    current = g_task_timed_wait_list.head;
+    while (current != NULL)
+    {
+        current_task = LIST_CONTAINER_OF(current, tcb_t, sched_node);
+        if (task_tick_deadline_is_before(task->wake_tick, current_task->wake_tick) != 0U)
+        {
+            /* 找到插入点后，手工完成双向链表指针修补：
+             * 当前任务插在 current 前面，并把 owner 标记成 timed-wait 链表。 */
+            node->prev = current->prev;
+            node->next = current;
+            node->owner = &g_task_timed_wait_list;
+
+            /* 若 current 不是原队头，就只需要把“前驱 -> 新节点”接起来；
+             * 否则当前任务会成为新的队头。 */
+            if (current->prev != NULL)
+            {
+                current->prev->next = node;
+            }
+            else
+            {
+                g_task_timed_wait_list.head = node;
+            }
+
+            /* 最后把 current 的前驱改成新节点，并补齐 item_count。 */
+            current->prev = node;
+            g_task_timed_wait_list.item_count++;
+            return;
+        }
+
+        /* 当前位置 deadline 不晚于新任务，继续向后找插入点。 */
+        current = current->next;
+    }
+
+    /* 扫到链尾仍未找到更晚的 deadline，说明新任务是“当前最晚到期”的，
+     * 直接尾插即可，同时还能保持同一 wake_tick 下的 FIFO 语义。 */
+    (void)list_insert_tail(&g_task_timed_wait_list, node);
+}
+
+/**
+ * @brief 在临界区内把一个等待中的任务重新放回 runnable 集合。
+ *
+ * @param task 待恢复运行的任务控制块。
+ * @param wait_result 本次恢复运行应写入的等待结果。
+ *
+ * @return os_status_t 恢复成功返回 OS_STATUS_OK，否则返回具体错误码。
+ */
+static os_status_t task_make_runnable_locked(tcb_t *task, task_wait_result_t wait_result)
+{
+    /* 被唤醒的对象首先必须是合法 TCB。 */
+    if (task_is_valid(task) == 0U)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* 只有真正处于等待态的任务，才允许走“恢复 runnable”路径。 */
+    if ((task->state != TASK_BLOCKED) && (task->state != TASK_SLEEPING))
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* 先从 timed-wait 链表摘掉 sched_node。
+     * 对纯事件唤醒且没有 timeout 的任务，这一步会自然跳过。 */
+    if (task_is_in_timed_wait_list(task) != 0U)
+    {
+        (void)list_remove(&g_task_timed_wait_list, &task->sched_node);
+    }
+
+    /* 再从对象等待链表摘掉 event_node。
+     * 这样无论是“事件先到”还是“超时先到”，都不会留下重复唤醒入口。 */
+    if (task->event_node.owner != NULL)
+    {
+        (void)list_remove(task->event_node.owner, &task->event_node);
+    }
+
+    /* 等待结束后，把等待相关元数据全部清理掉，
+     * 并把时间片恢复到初始值，等待再次运行时重新消费。 */
+    task->wake_tick = 0U;
+    task->wait_obj = NULL;
+    task->wait_result = wait_result;
+    task->time_slice = task->time_slice_reload;
+
+    /* 最后按普通 runnable 任务重新尾插回 ready queue，
+     * 这样同优先级下不会破坏原有 FIFO/时间片轮转顺序。 */
+    ready_queue_insert_tail(&g_task_ready_queue, task);
+    if (task->sched_node.owner != &g_task_ready_queue.ready_lists[task->priority])
+    {
+        task->state = TASK_DELETED;
+        return OS_STATUS_INSERT_FAILED;
+    }
+
+    return OS_STATUS_OK;
+}
+
+/**
+ * @brief 在临界区内唤醒一个等待中的任务，并给出新的调度决策。
+ *
+ * @param task 待唤醒的任务控制块。
+ * @param wait_result 本次唤醒应写入的等待结果。
+ *
+ * @return os_status_t 返回唤醒后得到的调度决策结果。
+ */
+static os_status_t task_unblock_locked(tcb_t *task, task_wait_result_t wait_result)
+{
+    os_status_t status = OS_STATUS_OK;
+
+    status = task_make_runnable_locked(task, wait_result);
+    if (status != OS_STATUS_OK)
+    {
+        return status;
+    }
+
     return task_schedule();
 }
 
 /**
- * @brief 推进当前运行任务的时间片计数，并在量子耗尽时执行同优先级轮转。
+ * @brief 在临界区内把当前运行任务迁移到 sleeping/blocking 等待状态。
  *
- * @return os_status_t 返回本次 tick 处理得到的调度决策结果。
+ * @param task 当前待迁移的任务控制块。
+ * @param wait_state 目标等待状态，只允许 TASK_SLEEPING 或 TASK_BLOCKED。
+ * @param wait_obj 当前等待的对象指针。
+ * @param timeout_ticks 若需要超时唤醒，给出相对 tick；传 OS_WAIT_FOREVER 表示不挂超时。
+ *
+ * @return os_status_t 返回迁移后的调度决策结果。
  */
-os_status_t task_time_slice_tick(void)
+static os_status_t task_prepare_wait_locked(tcb_t *task,
+                                            task_state_t wait_state,
+                                            void *wait_obj,
+                                            os_tick_t timeout_ticks)
 {
     os_status_t status = OS_STATUS_OK;
-    list_t     *ready_list = NULL;
-    tcb_t      *current_task = g_current_task;
 
-    /* 未初始化时，时间片逻辑没有语义基础。 */
+    /* 进入等待路径前，先确认调用方确实是一个仍在 runnable 集合里的
+     * 当前运行任务；否则后续“从 ready queue 摘链”的前提根本不成立。 */
+    status = task_validate_running_task(task);
+    if (status != OS_STATUS_OK)
+    {
+        return status;
+    }
+
+    /* idle 任务是整个系统在“无普通任务 runnable”时的最后兜底，
+     * 绝不能把它自己送进 sleeping/blocking。 */
+    if (task == &g_idle_task)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* 当前内部等待迁移逻辑只支持两种非 runnable 状态：
+     * 主动延时进入 TASK_SLEEPING，或等待对象进入 TASK_BLOCKED。 */
+    if ((wait_state != TASK_SLEEPING) && (wait_state != TASK_BLOCKED))
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* TASK_SLEEPING 必须对应一个有限的相对延时值；
+     * 若把 OS_WAIT_FOREVER 传进来，任务会离开 runnable 集合后再也没有唤醒来源。 */
+    if ((wait_state == TASK_SLEEPING) && (timeout_ticks == OS_WAIT_FOREVER))
+    {
+        return OS_STATUS_INVALID_PARAM;
+    }
+
+    /* 这里显式收紧 timeout 的取值范围：
+     * 1. OS_WAIT_FOREVER 允许存在，但它不参与 deadline 比较；
+     * 2. 其余 timeout 必须是正数，且严格小于 0x80000000，
+     *    否则会破坏后续 int32_t 差值比较的正确性。 */
+    if (task_timeout_is_supported(timeout_ticks) == 0U)
+    {
+        return OS_STATUS_INVALID_PARAM;
+    }
+
+    /* “永久阻塞”等待对象时，任务必须已经挂进某个事件等待链表；
+     * 否则系统既没有 timeout 唤醒点，也没有事件唤醒点，会永久丢失该任务。 */
+    if ((wait_state == TASK_BLOCKED) && (timeout_ticks == OS_WAIT_FOREVER) && (task->event_node.owner == NULL))
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* 真正进入等待态的第一步，是把当前任务从 runnable 集合摘掉。
+     * 从这一刻开始，它就不应再被 task_schedule() 选为 next task。 */
+    ready_queue_remove(&g_task_ready_queue, task);
+    if (task->sched_node.owner != NULL)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* 摘链成功后，马上把任务元数据切到等待语义：
+     * state 表示等待类型，wait_obj 指向等待对象，wait_result 清空为“尚无结果”，
+     * time_slice 复位到 reload，供任务将来再次被调度时重新消费完整时间片。 */
+    task->state = wait_state;
+    task->wait_obj = wait_obj;
+    task->wait_result = TASK_WAIT_RESULT_NONE;
+    task->time_slice = task->time_slice_reload;
+
+    if (timeout_ticks != OS_WAIT_FOREVER)
+    {
+        /* 带 timeout 的等待，需要先把相对超时换算成绝对 wake_tick，
+         * 再按 deadline 顺序插进 timed-wait 链表。 */
+        task->wake_tick = (os_tick_t)(g_os_tick + timeout_ticks);
+        timed_wait_list_insert_ordered(task);
+
+        /* 若插入后 owner 没有落到 timed-wait 链表，说明挂链失败；
+         * 这时必须立即返回错误，避免任务处于“既不 runnable、也不在 wait list”的丢失状态。 */
+        if (task->sched_node.owner != &g_task_timed_wait_list)
+        {
+            return OS_STATUS_INSERT_FAILED;
+        }
+    }
+    else
+    {
+        /* 永久等待不参与 timed-wait 排序，因此 wake_tick 明确清零，
+         * 后续只能依赖对象满足路径来调用 task_unblock()。 */
+        task->wake_tick = 0U;
+    }
+
+    /* 最后重新跑一次调度，让 g_next_task 反映“当前任务已离开 runnable 集合”后的结果。 */
+    return task_schedule();
+}
+
+/**
+ * @brief 在临界区内批量唤醒所有已经到期的 timed-wait 任务。
+ *
+ * @return os_status_t 若唤醒后需要切换，则返回 OS_STATUS_SWITCH_REQUIRED；
+ *                     若无需切换，则返回 OS_STATUS_NO_CHANGE；
+ *                     出错时返回具体错误码。
+ */
+static os_status_t task_wake_timed_tasks_locked(void)
+{
+    list_node_t *node = NULL;
+    tcb_t *task = NULL;
+    uint8_t woke_any_task = 0U;
+    os_status_t status = OS_STATUS_OK;
+
+    /* timed-wait 链表始终按 wake_tick 升序维护，所以只要队头还没到期，
+     * 后面的任务也一定不应该在本次 tick 被唤醒。 */
+    node = g_task_timed_wait_list.head;
+    while (node != NULL)
+    {
+        task = LIST_CONTAINER_OF(node, tcb_t, sched_node);
+
+        /* 队头 deadline 尚未到期时，当前 tick 的超时处理可以立即结束。 */
+        if (task_tick_is_due(g_os_tick, task->wake_tick) == 0U)
+        {
+            break;
+        }
+
+        /* 已到期任务统一走“重新放回 runnable 集合”的公共路径。
+         * 其中 BLOCKED 任务写入 TIMEOUT 结果，SLEEPING 任务保持 NONE 即可。 */
+        status = task_make_runnable_locked(task,
+                                           (task->state == TASK_BLOCKED) ? TASK_WAIT_RESULT_TIMEOUT
+                                                                         : TASK_WAIT_RESULT_NONE);
+        if (status != OS_STATUS_OK)
+        {
+            return status;
+        }
+
+        /* 只要本轮至少唤醒过一个任务，最后就要重新跑一次全局调度；
+         * 另外由于刚刚移除了原队头，所以这里重新从新队头开始检查。 */
+        woke_any_task = 1U;
+        node = g_task_timed_wait_list.head;
+    }
+
+    /* 一个任务都没唤醒时，说明本次 tick 没有因为 timeout 改变 runnable 集合。 */
+    if (woke_any_task == 0U)
+    {
+        return OS_STATUS_NO_CHANGE;
+    }
+
+    /* 有任务超时返回时，必须重新计算 next task，
+     * 这样更高优先级任务才能在本次 tick 后立即触发抢占。 */
+    return task_schedule();
+}
+
+/**
+ * @brief 在临界区内推进当前运行任务的时间片计数，并在量子耗尽时执行同优先级轮转。
+ *
+ * @return os_status_t 返回本次时间片处理得到的调度决策结果。
+ */
+static os_status_t task_handle_time_slice_tick_locked(void)
+{
+    os_status_t status = OS_STATUS_OK;
+    list_t *ready_list = NULL;
+    tcb_t *current_task = g_current_task;
+
+    /* 若调度器尚未建立，时间片逻辑没有语义基础。 */
     if (g_task_system_initialized == 0U)
     {
         return OS_STATUS_NOT_INITIALIZED;
     }
 
-    /* 尚未切入首任务时，tick 不需要做任何时间片处理。 */
+    /* 尚未切入任何任务时，本次 tick 不需要做时间片处理。 */
     if (current_task == NULL)
     {
         return OS_STATUS_NO_CHANGE;
     }
 
-    /* 只有真实处于 RUNNING 的 current task 才能消费时间片。 */
+    /* 时间片只能由真实 RUNNING 且仍在 runnable 集合中的 current task 消费。 */
     status = task_validate_running_task(current_task);
     if (status != OS_STATUS_OK)
     {
         return status;
     }
 
-    /* 这一条链表代表“当前任务所属优先级”的 runnable 任务集合。 */
+    /* 先拿到当前优先级对应的 ready list，后面同优先级轮转只会作用在这一条链表上。 */
     ready_list = task_get_ready_list_by_priority(current_task->priority);
     if (ready_list == NULL)
     {
         return OS_STATUS_INVALID_STATE;
     }
 
-    /* 先做一次全局调度检查，优先捕获“更高优先级任务已经 runnable”
-     * 的情况。这样就不会因为后面只看同优先级链表而漏报抢占。 */
-    status = task_schedule();
-    if (status == OS_STATUS_SWITCH_REQUIRED)
-    {
-        return status;
-    }
-
-    /* 对 tick 路径来说，除了“无需切换”之外的其他返回都说明状态异常，
-     * 直接向上返回即可。 */
-    if (status != OS_STATUS_NO_CHANGE)
-    {
-        return status;
-    }
-
-    /* 当前优先级只有自己一个 runnable 任务时，不需要做时间片轮转，
-     * 但仍把剩余片维持在 reload 值，避免单任务场景不断耗尽到 0。 */
+    /* 当前优先级只有自己一个 runnable 任务时，时间片轮转没有意义；
+     * 这里直接把剩余时间片恢复到 reload，避免单任务场景一直耗尽到 0。 */
     if (ready_list->item_count <= 1U)
     {
         current_task->time_slice = current_task->time_slice_reload;
-        return OS_STATUS_NO_CHANGE;
+        /* 即使本优先级没有可轮转对象，也仍要在本 tick 末尾重新计算全局调度结果，
+         * 这样刚刚被唤醒的更高优先级任务才能在本次 SysTick 后立刻抢占。 */
+        return task_schedule();
     }
 
-    /* 只有时间片大于 0 时才递减，防止无符号下溢。 */
+    /* 只有时间片还大于 0 时才递减，防止无符号计数下溢。 */
     if (current_task->time_slice > 0U)
     {
         current_task->time_slice--;
     }
 
-    /* 时间片还没用完，则当前任务继续运行。 */
+    /* 时间片尚未用完时，当前任务本优先级内不需要 rotate；
+     * 但本 tick 仍可能因为更高优先级任务刚刚醒来而需要切换。 */
     if (current_task->time_slice > 0U)
     {
-        return OS_STATUS_NO_CHANGE;
+        return task_schedule();
     }
 
-    /* 时间片耗尽后，先恢复初始时间片，供该任务下一轮再次被调度时使用。 */
+    /* 时间片耗尽后，先恢复 reload 值，供该任务下一轮再次被调度时使用。 */
     current_task->time_slice = current_task->time_slice_reload;
 
-    /* 时间片轮转的核心动作是把本优先级队头移到队尾。 */
+    /* 轮转动作只在“当前任务仍是本优先级队头”时执行；
+     * 这样可以确保 rotate 的确是把当前运行者移到队尾。 */
     if (ready_list->head == &current_task->sched_node)
     {
         ready_queue_rotate(&g_task_ready_queue, current_task->priority);
     }
 
-    /* 轮转后再做一次调度，决定是否切到同优先级下一个任务。 */
+    /* 轮转完成后再做一次调度，综合决定：
+     * 1. 是否切到刚醒来的更高优先级任务；
+     * 2. 若无更高优先级任务，是否切到同优先级下一个时间片接班者。 */
     return task_schedule();
+}
+
+/**
+ * @brief 对外暴露的 RTOS 节拍推进入口。
+ *
+ * @return os_status_t 返回本次 tick 处理得到的调度决策结果。
+ */
+os_status_t task_system_tick(void)
+{
+    os_status_t status = OS_STATUS_OK;
+    uint32_t primask = 0U;
+
+    /* 节拍处理依赖 ready queue、timed-wait 链表和 current task 等全局状态，
+     * 所以调度器未初始化时不能进入这条路径。 */
+    if (g_task_system_initialized == 0U)
+    {
+        return OS_STATUS_NOT_INITIALIZED;
+    }
+
+    /* SysTick 和线程态 API 都会改动同一批任务链表，这里先进入最小临界区，
+     * 保证“tick 递增 + timeout 唤醒 + 时间片决策”作为一个原子步骤完成。 */
+    primask = os_port_enter_critical();
+
+    /* 先推进绝对时基，再基于新的 current tick 处理到期任务。 */
+    g_os_tick++;
+
+    /* 先处理 timeout，让所有“本 tick 到期”的任务回到 runnable 集合。
+     * 但这里先不急着返回 SWITCH_REQUIRED，因为当前正在运行的任务
+     * 也必须先为“已经跑完的这个 tick”结算时间片。 */
+    status = task_wake_timed_tasks_locked();
+    if ((status != OS_STATUS_NO_CHANGE) && (status != OS_STATUS_SWITCH_REQUIRED))
+    {
+        os_port_exit_critical(primask);
+        return status;
+    }
+
+    /* 无论 timeout 是否已经让更高优先级任务变成 runnable，
+     * 当前任务都已经完整消耗了这一个 tick，所以这里仍要继续结算时间片。 */
+    status = task_handle_time_slice_tick_locked();
+    os_port_exit_critical(primask);
+
+    return status;
+}
+
+/**
+ * @brief 获取当前绝对 tick 值。
+ *
+ * @return os_tick_t 当前全局 tick 值。
+ */
+os_tick_t os_tick_get(void)
+{
+    return g_os_tick;
+}
+
+/**
+ * @brief 让当前任务进入延时睡眠状态。
+ *
+ * @param delay_ticks 相对延时 tick 数；传 0 表示立即返回且不进入睡眠。
+ *
+ * @return os_status_t 成功进入延时路径并最终恢复返回时返回 OS_STATUS_OK，
+ *                     否则返回具体错误码。
+ */
+os_status_t task_delay(os_tick_t delay_ticks)
+{
+    os_status_t status = OS_STATUS_OK;
+    uint32_t primask = 0U;
+
+    /* delay 只能由线程态代码发起；
+     * ISR 若要延后工作，应该通过对象唤醒线程，而不是把自己送进睡眠。 */
+    if (os_port_is_in_interrupt() != 0U)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* delay(0) 明确定义为 no-op，不进入睡眠，也不等价于 yield。 */
+    if (delay_ticks == 0U)
+    {
+        return OS_STATUS_OK;
+    }
+
+    /* delay 必须表达一个“有限时长的睡眠”。
+     * OS_WAIT_FOREVER 只保留给“等待对象且永久阻塞”的语义，不能拿来做 task_delay。 */
+    if (delay_ticks == OS_WAIT_FOREVER)
+    {
+        return OS_STATUS_INVALID_PARAM;
+    }
+
+    /* 从这里开始，当前任务会离开 runnable 集合；
+     * 因此整个“摘链 + 选出 next task + 提交 PendSV”必须放在同一个临界区内。 */
+    primask = os_port_enter_critical();
+    status = task_prepare_wait_locked(g_current_task, TASK_SLEEPING, NULL, delay_ticks);
+
+    if (status == OS_STATUS_SWITCH_REQUIRED)
+    {
+        /* 审查点修复：
+         * 当前任务已经不在 ready queue 中了，所以必须先把 PendSV 置 pending，
+         * 再恢复中断。这样任何 SysTick 或对象 IRQ 都不可能在“任务已阻塞、
+         * 但线程还继续向前跑”的窗口里抢先把它重新唤醒。 */
+        os_port_trigger_pendsv();
+        os_port_exit_critical(primask);
+        return OS_STATUS_OK;
+    }
+
+    /* 只有在“不需要切换”或“返回错误”的路径上，才按常规顺序退出临界区。 */
+    os_port_exit_critical(primask);
+    return status;
+}
+
+/**
+ * @brief 让当前任务进入对象等待阻塞状态。
+ *
+ * @param wait_obj 当前等待的对象指针。
+ * @param timeout_ticks 等待超时 tick 数；传 OS_WAIT_FOREVER 表示永久等待。
+ *
+ * @return os_status_t 成功进入阻塞路径并最终恢复返回时返回 OS_STATUS_OK，
+ *                     否则返回具体错误码。
+ */
+os_status_t task_block_current(void *wait_obj, os_tick_t timeout_ticks)
+{
+    os_status_t status = OS_STATUS_OK;
+    uint32_t primask = 0U;
+
+    /* block 接口同样只允许在线程态使用；
+     * ISR 不应把自己挂起，而应唤醒或解锁别的线程。 */
+    if (os_port_is_in_interrupt() != 0U)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* timeout=0 的语义是“立即超时返回”，所以这里不做任何摘链动作，
+     * 只把当前等待结果记成 TIMEOUT，供上层对象代码按同步失败路径处理。 */
+    if (timeout_ticks == 0U)
+    {
+        status = task_validate_running_task(g_current_task);
+        if (status != OS_STATUS_OK)
+        {
+            return status;
+        }
+
+        if (g_current_task != NULL)
+        {
+            g_current_task->wait_result = TASK_WAIT_RESULT_TIMEOUT;
+        }
+
+        return OS_STATUS_OK;
+    }
+
+    /* 进入真正的阻塞路径后，当前任务可能马上离开 runnable 集合；
+     * 因此和 task_delay() 一样，要把“摘链 + 调度 + PendSV 置 pending”
+     * 绑在同一个临界区里完成。 */
+    primask = os_port_enter_critical();
+    status = task_prepare_wait_locked(g_current_task, TASK_BLOCKED, wait_obj, timeout_ticks);
+
+    if (status == OS_STATUS_SWITCH_REQUIRED)
+    {
+        /* 审查点修复：
+         * 先提交 PendSV，再恢复 PRIMASK，避免对象 IRQ / SysTick 抢在真正切走前
+         * 改写同一个任务的等待状态，从而把阻塞错误地退化成 no-op。 */
+        os_port_trigger_pendsv();
+        os_port_exit_critical(primask);
+        return OS_STATUS_OK;
+    }
+
+    /* 不需要切换或发生错误时，再按普通路径退出临界区。 */
+    os_port_exit_critical(primask);
+    return status;
+}
+
+/**
+ * @brief 唤醒一个等待中的任务，并返回新的调度决策结果。
+ *
+ * @param task 待唤醒的任务控制块。
+ * @param wait_result 本次唤醒应写入的等待结果。
+ *
+ * @return os_status_t 返回唤醒后的调度决策结果。
+ */
+os_status_t task_unblock(tcb_t *task, task_wait_result_t wait_result)
+{
+    os_status_t status = OS_STATUS_OK;
+    uint32_t primask = 0U;
+
+    /* unblock 会同时改动 timed-wait、事件等待链表和 ready queue，
+     * 所以这里统一放进最小临界区内执行。 */
+    primask = os_port_enter_critical();
+    status = task_unblock_locked(task, wait_result);
+    os_port_exit_critical(primask);
+
+    /* 返回值保留“唤醒后是否需要切换”的调度信息，交由上层决定是否触发 PendSV。 */
+    return status;
 }
 
 /**
@@ -598,6 +1302,7 @@ os_status_t task_time_slice_tick(void)
  */
 tcb_t *task_get_current(void)
 {
+    /* 这里直接返回 current task 快照，不附带任何额外状态变化。 */
     return g_current_task;
 }
 
@@ -608,6 +1313,7 @@ tcb_t *task_get_current(void)
  */
 tcb_t *task_get_next(void)
 {
+    /* g_next_task 由最近一次 schedule() 决策维护，这里只读暴露其当前值。 */
     return g_next_task;
 }
 
@@ -618,6 +1324,7 @@ tcb_t *task_get_next(void)
  */
 ready_queue_t *task_get_ready_queue(void)
 {
+    /* 返回的是内核内部全局 ready queue 本体，调用方拿到的是共享对象地址。 */
     return &g_task_ready_queue;
 }
 
@@ -636,40 +1343,41 @@ os_status_t task_set_current(tcb_t *task)
         return OS_STATUS_INVALID_PARAM;
     }
 
-    /* 目标必须是一个已经初始化好的合法 TCB。 */
+    /* 目标首先得是一个已经初始化完成的合法 TCB。 */
     if (task_is_valid(task) == 0U)
     {
         return OS_STATUS_INVALID_STATE;
     }
 
-    /* 这里的边界被刻意收紧：只能把调度器刚刚选出来的 g_next_task
-     * 提升为当前任务，不能绕过调度器直接指定其他 READY 任务。 */
+    /* port 层不能绕过调度器任意挑任务，
+     * 这里只允许把当前 g_next_task 提交成 current task。 */
     if (task != g_next_task)
     {
         return OS_STATUS_INVALID_STATE;
     }
 
-    /* 被切入的任务必须仍然处于 runnable 集合中。 */
+    /* 被切入的任务必须仍然留在 runnable 集合里，
+     * 否则说明 ready queue / task state 已经失配。 */
     if (task_is_in_runnable_queue(task) == 0U)
     {
         return OS_STATUS_INVALID_STATE;
     }
 
-    /* 若目标不是当前任务本身，则它在提交前应该处于 READY，
-     * 不允许把 BLOCKED/SLEEPING/DELETED 任务直接切成 RUNNING。 */
+    /* 若目标不是当前任务本身，那么它在提交前必须明确处于 READY，
+     * 不能把 BLOCKED/SLEEPING/DELETED 任务直接提升成 RUNNING。 */
     if ((task != g_current_task) && (task->state != TASK_READY))
     {
         return OS_STATUS_INVALID_STATE;
     }
 
-    /* 旧的 current task 若确实在运行，且这次要切到别的任务，
-     * 则先把它降回 READY。注意：它仍然留在 runnable 集合中。 */
+    /* 真正切走旧任务前，先把它从 RUNNING 降回 READY；
+     * 它仍留在 runnable 集合中，只是暂时不占用 CPU。 */
     if ((g_current_task != NULL) && (g_current_task != task) && (g_current_task->state == TASK_RUNNING))
     {
         g_current_task->state = TASK_READY;
     }
 
-    /* 真正提交 current task 的时刻在这里。 */
+    /* 直到这里才真正提交新的 current，并把状态推进为 RUNNING。 */
     g_current_task = task;
     g_current_task->state = TASK_RUNNING;
     return OS_STATUS_OK;
@@ -684,8 +1392,27 @@ os_status_t task_set_current(tcb_t *task)
  */
 static uint8_t ready_queue_priority_is_valid(uint8_t priority)
 {
-    /* 当前实现使用 32 位位图，因此合法优先级范围是 0 ~ OS_MAX_PRIORITIES - 1。 */
+    /* 当前实现用 32-bit 位图管理优先级，所以合法范围就是 0 ~ OS_MAX_PRIORITIES-1。 */
     return (uint8_t)(priority < OS_MAX_PRIORITIES);
+}
+
+/**
+ * @brief 判断一个优先级是否允许给普通用户任务使用。
+ *
+ * @param priority 待检查的任务优先级。
+ *
+ * @return uint8_t 非 0 表示优先级允许给普通任务使用，0 表示该优先级被保留。
+ */
+static uint8_t task_user_priority_is_valid(uint8_t priority)
+{
+    /* 先确认 priority 至少在 ready queue 的总范围内。 */
+    if (ready_queue_priority_is_valid(priority) == 0U)
+    {
+        return 0U;
+    }
+
+    /* 普通任务不能占用保留给 idle 的最低优先级槽位。 */
+    return (uint8_t)(priority < OS_IDLE_TASK_PRIORITY);
 }
 
 /**
@@ -697,7 +1424,7 @@ static uint8_t ready_queue_priority_is_valid(uint8_t priority)
  */
 static uint32_t ready_queue_priority_mask(uint8_t priority)
 {
-    /* 越界优先级不应生成位图掩码。 */
+    /* 越界 priority 没有对应的 bitmap 位，直接返回 0 掩码。 */
     if (ready_queue_priority_is_valid(priority) == 0U)
     {
         return 0U;
@@ -716,16 +1443,16 @@ void ready_queue_init(ready_queue_t *queue)
 {
     uint32_t priority = 0U;
 
-    /* 空指针保护，避免初始化阶段误写非法地址。 */
+    /* 空指针保护，避免初始化阶段误写非法内存。 */
     if (queue == NULL)
     {
         return;
     }
 
-    /* 初始时没有任何 runnable 优先级。 */
+    /* 初始时没有任何 runnable 任务，所以位图先清零。 */
     queue->ready_bitmap = 0U;
 
-    /* 每个优先级的 ready list 都要单独初始化为空链表。 */
+    /* 把每个优先级槽位都初始化成空链表，后续 insert/remove 才有定义。 */
     for (priority = 0U; priority < OS_MAX_PRIORITIES; priority++)
     {
         list_init(&queue->ready_lists[priority]);
@@ -742,28 +1469,26 @@ void ready_queue_insert_tail(ready_queue_t *queue, tcb_t *task)
 {
     uint8_t priority = 0U;
 
-    /* ready queue 和任务对象都必须存在。 */
+    /* ready queue 和 task 对象缺一不可。 */
     if ((queue == NULL) || (task == NULL))
     {
         return;
     }
 
-    /* 任务的 priority 决定它应插入哪一条 ready list。 */
+    /* 任务自己的 priority 决定它应当进入哪条 ready list。 */
     priority = task->priority;
-
-    /* 非法优先级无法映射到 ready list。 */
     if (ready_queue_priority_is_valid(priority) == 0U)
     {
         return;
     }
 
-    /* 同优先级任务采用尾插，这样可以直接支撑时间片轮转语义。 */
+    /* 同优先级任务统一尾插，天然兼容 FIFO 与时间片轮转语义。 */
     if (list_insert_tail(&queue->ready_lists[priority], &task->sched_node) == 0U)
     {
         return;
     }
 
-    /* 插入成功后，更新位图并把任务状态推进为 READY。 */
+    /* 插入成功后，同步置位 ready bitmap，并把任务状态推进成 READY。 */
     queue->ready_bitmap |= ready_queue_priority_mask(priority);
     task->state = TASK_READY;
 }
@@ -781,7 +1506,7 @@ void ready_queue_insert_tail(ready_queue_t *queue, tcb_t *task)
 void ready_queue_remove(ready_queue_t *queue, tcb_t *task)
 {
     uint8_t priority = 0U;
-    list_t *list     = NULL;
+    list_t *list = NULL;
 
     /* 参数任一为空都无法完成摘链。 */
     if ((queue == NULL) || (task == NULL))
@@ -789,24 +1514,21 @@ void ready_queue_remove(ready_queue_t *queue, tcb_t *task)
         return;
     }
 
-    /* 按任务自己的 priority 找到它应该所在的 ready list。 */
+    /* 根据任务自己的 priority 找到它当前应当所在的 ready list。 */
     priority = task->priority;
-
-    /* 非法优先级不允许继续访问 ready_lists。 */
     if (ready_queue_priority_is_valid(priority) == 0U)
     {
         return;
     }
 
+    /* 先定位链表，再尝试把任务的 sched_node 摘下来。 */
     list = &queue->ready_lists[priority];
-
-    /* 节点不在该链表里时，list_remove() 会失败；这里直接返回即可。 */
     if (list_remove(list, &task->sched_node) == 0U)
     {
         return;
     }
 
-    /* 该优先级链表变空后，要同步清掉 ready_bitmap 上对应的 bit。 */
+    /* 该优先级链表若已被摘空，要同步清掉 ready bitmap 上对应的 bit。 */
     if (list_is_empty(list) != 0U)
     {
         queue->ready_bitmap &= ~ready_queue_priority_mask(priority);
@@ -825,26 +1547,29 @@ uint8_t ready_queue_get_highest_priority(const ready_queue_t *queue, uint8_t *pr
 {
     uint8_t current = 0U;
 
-    /* 空队列或空指针都表示“当前没有可运行优先级”。 */
+    /* 空队列或空指针都表示“当前没有任何 runnable 优先级”。 */
     if ((queue == NULL) || (queue->ready_bitmap == 0U))
     {
         return 0U;
     }
 
-    /* 数值越小优先级越高，所以从 0 开始向后扫描位图。 */
+    /* 数值越小优先级越高，因此从 0 开始扫描 ready bitmap。 */
     for (current = 0U; current < OS_MAX_PRIORITIES; current++)
     {
         if ((queue->ready_bitmap & ready_queue_priority_mask(current)) != 0U)
         {
-            /* 调用方若提供输出参数，则把找到的最高优先级写回去。 */
+            /* 调用方如果给了输出参数，就顺手把找到的最高优先级写回。 */
             if (priority != NULL)
             {
                 *priority = current;
             }
+
+            /* 第一个命中的 bit 就是当前最高优先级，可以立刻返回。 */
             return 1U;
         }
     }
 
+    /* 理论上不应走到这里；若走到这里，说明 ready_bitmap 与扫描结果不一致。 */
     return 0U;
 }
 
@@ -857,24 +1582,24 @@ uint8_t ready_queue_get_highest_priority(const ready_queue_t *queue, uint8_t *pr
  */
 const tcb_t *ready_queue_peek_highest(const ready_queue_t *queue)
 {
-    uint8_t priority   = 0U;
+    uint8_t priority = 0U;
     const list_t *ready_list = NULL;
 
-    /* 先找出最高优先级对应的是哪一条 ready list。 */
+    /* 先找出哪一个优先级当前最高且非空。 */
     if (ready_queue_get_highest_priority(queue, &priority) == 0U)
     {
         return NULL;
     }
 
+    /* 再拿到该优先级对应的 ready list。 */
     ready_list = &queue->ready_lists[priority];
-
-    /* 位图和链表理论上应保持一致，这里保留空头节点保护。 */
     if (ready_list->head == NULL)
     {
+        /* 位图和链表理论上应保持一致，这里保留空头保护，避免非法解引用。 */
         return NULL;
     }
 
-    /* 最高优先级链表的头节点，就是当前应运行的任务。 */
+    /* 最高优先级链表的头节点，就是当前最应该运行的任务。 */
     return LIST_CONTAINER_OF(ready_list->head, tcb_t, sched_node);
 }
 
@@ -886,32 +1611,31 @@ const tcb_t *ready_queue_peek_highest(const ready_queue_t *queue)
  */
 void ready_queue_rotate(ready_queue_t *queue, uint8_t priority)
 {
-    list_t      *ready_list = NULL;
-    list_node_t *node       = NULL;
+    list_t *ready_list = NULL;
+    list_node_t *node = NULL;
 
-    /* 空队列对象无法执行轮转。 */
+    /* 空队列对象没有可轮转的目标。 */
     if (queue == NULL)
     {
         return;
     }
 
-    /* 只有合法优先级才能找到对应链表。 */
+    /* 越界 priority 不能映射到合法 ready list。 */
     if (ready_queue_priority_is_valid(priority) == 0U)
     {
         return;
     }
 
+    /* 轮转只作用于某个固定优先级的 ready list。 */
     ready_list = &queue->ready_lists[priority];
-
-    /* 少于两个节点时，轮转没有意义。 */
     if (ready_list->item_count <= 1U)
     {
+        /* 少于两个节点时，头尾移动没有任何意义。 */
         return;
     }
 
-    /* 轮转动作等价于“摘下头节点，再挂到尾部”。 */
+    /* 轮转的本质就是：摘下头节点，再把它重新挂到尾部。 */
     node = list_remove_head(ready_list);
-
     if (node != NULL)
     {
         (void)list_insert_tail(ready_list, node);
@@ -927,12 +1651,12 @@ void ready_queue_rotate(ready_queue_t *queue, uint8_t priority)
  */
 uint8_t ready_queue_is_empty(const ready_queue_t *queue)
 {
-    /* 约定空指针按“空队列”处理。 */
+    /* 约定空指针按“空队列”处理，这样调用方可以少写一层空值判断。 */
     if (queue == NULL)
     {
         return 1U;
     }
 
-    /* 当前实现以 ready_bitmap 是否为 0 作为整个 runnable 集合是否为空的判断依据。 */
+    /* 当前版本以 ready_bitmap 是否为 0 作为整个 runnable 集合是否为空的唯一依据。 */
     return (uint8_t)(queue->ready_bitmap == 0U);
 }

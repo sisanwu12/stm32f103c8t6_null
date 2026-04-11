@@ -19,6 +19,12 @@
     #define OS_MAX_PRIORITIES 32U
 #endif
 
+/* RTOS 系统节拍频率，单位为 Hz。
+ * 当前 delay/block/tick 闭环按 1000Hz（1ms 一个 tick）设计。 */
+#ifndef OS_TICK_HZ
+    #define OS_TICK_HZ 1000U
+#endif
+
 /* 任务默认时间片长度。
  * 当创建任务时未显式指定时间片，系统使用该值初始化 time_slice。 */
 #ifndef OS_TASK_DEFAULT_TIME_SLICE
@@ -35,6 +41,12 @@
  * Cortex-M3 任务初始栈帧在建立时会按该值向下对齐。 */
 #ifndef OS_TASK_STACK_ALIGNMENT_BYTES
     #define OS_TASK_STACK_ALIGNMENT_BYTES 8U
+#endif
+
+/* idle 任务栈深度，单位为 uint32_t。
+ * idle 任务只做最低优先级兜底运行，因此默认使用最小栈深度即可。 */
+#ifndef OS_IDLE_TASK_STACK_DEPTH
+    #define OS_IDLE_TASK_STACK_DEPTH OS_TASK_MIN_STACK_DEPTH
 #endif
 
 #endif /* __OS_CONFIG_H__ */

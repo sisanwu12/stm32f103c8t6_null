@@ -19,6 +19,8 @@ typedef uint32_t os_tick_t; // RTOS 节拍计数类型
 typedef uint32_t os_stack_word_t; // 任务栈中单个栈元素的类型
 typedef void (*task_entry_t)(void *param); // 任务入口函数类型定义
 
+#define OS_WAIT_FOREVER ((os_tick_t)UINT32_MAX) // 永久等待标记，不为任务配置超时 tick
+
 typedef enum {
     OS_STATUS_OK = 0,              // 操作成功
     OS_STATUS_SWITCH_REQUIRED,     // 已得出调度结果，调用方需要触发上下文切换

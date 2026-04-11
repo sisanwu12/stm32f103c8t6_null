@@ -16,13 +16,16 @@
 /**
  * @brief 启动内核并切入首个任务。
  *
+ * @param cpu_clock_hz 当前 CPU 内核时钟频率，单位为 Hz。
+ *
  * @return os_status_t 若当前没有 runnable task，则返回 OS_STATUS_EMPTY；
  *                     若成功完成首任务切入，本函数不应返回；
  *                     若意外返回，则返回具体错误码。
  */
-os_status_t os_kernel_start(void)
+os_status_t os_kernel_start(uint32_t cpu_clock_hz)
 {
     os_status_t status = OS_STATUS_OK;
+    uint32_t    primask = 0U;
 
     /* 先让调度器选出当前应当运行的首任务。 */
     status = task_schedule();
@@ -39,8 +42,21 @@ os_status_t os_kernel_start(void)
         return OS_STATUS_INVALID_STATE;
     }
 
+    /* 在真正切入首任务前，先关中断并配置 SysTick，
+     * 避免节拍中断早于首任务启动链路生效。 */
+    primask = os_port_enter_critical();
+
+    status = os_port_systick_init(cpu_clock_hz, OS_TICK_HZ);
+    if (status != OS_STATUS_OK)
+    {
+        os_port_exit_critical(primask);
+        return status;
+    }
+
     /* 真正切入首任务的动作交给 port 层完成。 */
     os_port_start_first_task();
+
+    os_port_exit_critical(primask);
 
     /* 若 port 层意外返回，说明首任务启动链路存在异常。 */
     return OS_STATUS_INVALID_STATE;

@@ -25,6 +25,10 @@ extern uint32_t _estack;
 /* EXC_RETURN = 0xFFFFFFFD 的含义是：
  * 返回到 Thread mode，使用 PSP，并按基本异常栈帧恢复现场。 */
 #define OS_PORT_EXC_RETURN_THREAD_PSP   0xFFFFFFFDUL
+/* Cortex-M3 异常优先级数值越大，实际优先级越低。 */
+#define OS_PORT_LOWEST_INTERRUPT_PRIORITY ((1UL << __NVIC_PRIO_BITS) - 1UL)
+/* SysTick 需要高于 PendSV 一档，保证先完成 tick 处理，再在异常尾部切任务。 */
+#define OS_PORT_SYSTICK_PRIORITY        (OS_PORT_LOWEST_INTERRUPT_PRIORITY - 1UL)
 
 #if defined(__GNUC__) && (defined(__arm__) || defined(__thumb__))
     /* naked 用于告诉编译器不要自动生成函数序言/结语，
@@ -38,7 +42,7 @@ extern uint32_t _estack;
     #define OS_PORT_USED
 #endif
 
-static OS_PORT_USED void os_port_configure_pendsv_priority(void);
+static OS_PORT_USED void os_port_configure_exception_priorities(void);
 static OS_PORT_USED uint32_t *os_port_switch_context(uint32_t *stack_pointer);
 
 /**
@@ -52,13 +56,12 @@ static void os_port_task_exit_error(void)
 }
 
 /**
- * @brief 将 PendSV 优先级设置为系统支持的最低优先级。
+ * @brief 统一配置 SysTick 与 PendSV 的异常优先级。
  */
-static OS_PORT_USED void os_port_configure_pendsv_priority(void)
+static OS_PORT_USED void os_port_configure_exception_priorities(void)
 {
-    uint32_t priority = (1UL << __NVIC_PRIO_BITS) - 1UL;
-
-    NVIC_SetPriority(PendSV_IRQn, priority);
+    NVIC_SetPriority(PendSV_IRQn, OS_PORT_LOWEST_INTERRUPT_PRIORITY);
+    NVIC_SetPriority(SysTick_IRQn, OS_PORT_SYSTICK_PRIORITY);
 }
 
 /**
@@ -163,14 +166,99 @@ void os_port_trigger_pendsv(void)
 }
 
 /**
+ * @brief 初始化 Cortex-M3 的 SysTick 节拍定时器。
+ *
+ * @param cpu_clock_hz 当前 CPU 内核时钟频率，单位为 Hz。
+ * @param tick_hz 期望的系统节拍频率，单位为 Hz。
+ *
+ * @return os_status_t 初始化成功返回 OS_STATUS_OK，否则返回具体错误码。
+ */
+os_status_t os_port_systick_init(uint32_t cpu_clock_hz, uint32_t tick_hz)
+{
+    uint32_t reload = 0U;
+
+    if ((cpu_clock_hz == 0U) || (tick_hz == 0U))
+    {
+        return OS_STATUS_INVALID_PARAM;
+    }
+
+    if (cpu_clock_hz < tick_hz)
+    {
+        return OS_STATUS_INVALID_PARAM;
+    }
+
+    /* 当前版本要求 SysTick 能整除 CPU 频率，避免因为截断造成固定节拍漂移。 */
+    if ((cpu_clock_hz % tick_hz) != 0U)
+    {
+        return OS_STATUS_INVALID_PARAM;
+    }
+
+    reload = cpu_clock_hz / tick_hz;
+    if ((reload == 0U) || (reload > (SysTick_LOAD_RELOAD_Msk + 1UL)))
+    {
+        return OS_STATUS_INVALID_PARAM;
+    }
+
+    os_port_configure_exception_priorities();
+
+    if (SysTick_Config(reload) != 0U)
+    {
+        return OS_STATUS_INVALID_PARAM;
+    }
+
+    /* SysTick_Config() 会把 SysTick 也设成最低优先级，这里要显式覆盖回
+     * “高于 PendSV 一档”的约束。 */
+    NVIC_SetPriority(SysTick_IRQn, OS_PORT_SYSTICK_PRIORITY);
+    return OS_STATUS_OK;
+}
+
+/**
+ * @brief 进入最小临界区，并返回进入前的 PRIMASK 值。
+ *
+ * @return uint32_t 进入临界区前的 PRIMASK 原值。
+ */
+uint32_t os_port_enter_critical(void)
+{
+    uint32_t primask = __get_PRIMASK();
+
+    __disable_irq();
+    __DSB();
+    __ISB();
+
+    return primask;
+}
+
+/**
+ * @brief 按进入前保存的 PRIMASK 值退出最小临界区。
+ *
+ * @param primask 进入临界区前保存的 PRIMASK 原值。
+ */
+void os_port_exit_critical(uint32_t primask)
+{
+    __set_PRIMASK(primask);
+    __DSB();
+    __ISB();
+}
+
+/**
+ * @brief 判断当前是否处于异常/中断上下文。
+ *
+ * @return uint8_t 非 0 表示当前位于异常/中断上下文，0 表示当前位于线程上下文。
+ */
+uint8_t os_port_is_in_interrupt(void)
+{
+    return (uint8_t)(__get_IPSR() != 0U);
+}
+
+/**
  * @brief 启动首任务，切换到 PSP 并通过异常返回进入任务上下文。
  */
 OS_PORT_NAKED void os_port_start_first_task(void)
 {
 #if defined(__GNUC__) && (defined(__arm__) || defined(__thumb__))
     __asm volatile(
-        /* 先在当前启动栈上完成 PendSV 优先级配置。 */
-        "bl os_port_configure_pendsv_priority \n"
+        /* 先在当前启动栈上完成异常优先级配置。 */
+        "bl os_port_configure_exception_priorities \n"
         /* 关中断，避免在重置 MSP 的过渡窗口被别的异常打断。 */
         "cpsid i                            \n"
         /* 直接把 MSP 恢复到链接脚本给出的初始栈顶，
@@ -191,6 +279,20 @@ OS_PORT_NAKED void os_port_start_first_task(void)
     {
     }
 #endif
+}
+
+/**
+ * @brief SysTick 异常处理函数，负责推进全局时基并触发需要的任务切换。
+ */
+void SysTick_Handler(void)
+{
+    os_status_t status = OS_STATUS_OK;
+
+    status = task_system_tick();
+    if (status == OS_STATUS_SWITCH_REQUIRED)
+    {
+        os_port_trigger_pendsv();
+    }
 }
 
 /**
