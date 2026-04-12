@@ -16,6 +16,21 @@
 
 #include "data_type.h"
 
+/* ========== 数据定义 ========== */
+typedef enum
+{
+    DRI_MASK_1  = 0b1U,        // 1 位掩码
+    DRI_MASK_2  = 0b11U,       // 2 位掩码
+    DRI_MASK_3  = 0b111U,      // 3 位掩码
+    DRI_MASK_4  = 0xFU,        // 4 位掩码
+    DRI_MASK_5  = 0b11111U,    // 5 位掩码
+    DRI_MASK_6  = 0b111111U,   // 6 位掩码
+    DRI_MASK_7  = 0b1111111U,  // 7 位掩码
+    DRI_MASK_8  = 0xFFU,       // 8 位掩码
+    DRI_MASK_16 = 0xFFFFU,     // 16 位掩码
+    DRI_MASK_32 = 0xFFFFFFFFU, // 32 位掩码
+} dri_ll_mask_t;               // 寄存器位掩码类型
+
 /* ========== 基础操作 ==========*/
 
 /* 写寄存器函数 */
@@ -127,6 +142,19 @@ static inline void dri_ll_wait_bits_clear(uptr base_addr, uptr offset, u32 bits)
     while ((dri_ll_read_reg(base_addr, offset) & bits) != 0U)
     {
     }
+}
+
+/**
+ * @brief 寄存器位翻转函数
+ *
+ * @param base_addr 寄存器基地址
+ * @param offset 寄存器偏移地址
+ * @param bits 要翻转的位掩码
+ */
+static inline void dri_ll_toggle_bits(uptr base_addr, uptr offset, u32 bits)
+{
+    volatile u32* reg_addr = (volatile u32*)(base_addr + offset);
+    *reg_addr ^= bits;
 }
 
 #endif /* __DRI_LL_H__ */
