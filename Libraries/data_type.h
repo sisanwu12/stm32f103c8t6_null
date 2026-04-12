@@ -40,28 +40,9 @@ typedef const int64_t  cs64;
 typedef const intptr_t csptr;
 
 /* 二值型数据类型 */
-typedef enum
-{
-    ENABLE  = true,
-    DISABLE = false
-} isENABLE;
-
-typedef enum
-{
-    SET   = true,
-    RESET = false
-} isSET;
-
-typedef enum
-{
-    READY     = true,
-    NOT_READY = false
-} isREADY;
-
-typedef enum
-{
-    ERROR    = true,
-    NO_ERROR = false
-} isERROR;
+typedef bool isENABLE;
+typedef bool isSET;
+typedef bool isREADY;
+typedef bool isERROR;
 
 #endif /* __DATA_TYPE_H__ */
