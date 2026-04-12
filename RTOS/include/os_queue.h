@@ -35,5 +35,6 @@ os_status_t os_queue_init(os_queue_t *queue, void *buffer, uint32_t msg_size, ui
 os_status_t os_queue_send(os_queue_t *queue, const void *msg, os_tick_t timeout_ticks);
 os_status_t os_queue_recv(os_queue_t *queue, void *msg, os_tick_t timeout_ticks);
 os_status_t os_queue_send_from_isr(os_queue_t *queue, const void *msg);
+os_status_t os_queue_recv_from_isr(os_queue_t *queue, void *msg);
 
 #endif /* __OS_QUEUE_H__ */

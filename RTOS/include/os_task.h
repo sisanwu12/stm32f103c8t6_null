@@ -56,14 +56,17 @@ typedef struct tcb {
     os_tick_t wake_tick;       // 延时或超时唤醒的目标tick
     void    *wait_obj;         // 当前正在等待的对象
     task_wait_result_t wait_result; // 当前等待恢复运行后携带的结果
+    task_wait_cleanup_fn_t wait_cleanup_locked; // waiter 因 timeout/delete 离开时，供对象侧做清理的内部回调
 
-    uint8_t      priority;          // 优先级
+    uint8_t      base_priority;     // 任务静态原始优先级
+    uint8_t      priority;          // 当前生效优先级；调度与 waiter 排序都使用这个值
     task_state_t state;             // 任务状态
     uint8_t      time_slice;        // 当前剩余时间片
     uint8_t      time_slice_reload; // 时间片初值
 
     list_node_t sched_node;    // 调度相关链表节点，用于ready/timed-wait链表
     list_node_t event_node;    // 事件等待链表节点，用于queue/semaphore等待
+    list_t      owned_mutex_list; // 当前任务持有的互斥锁链表，用于优先级继承重算
 } tcb_t; // TCB结构定义
 
 typedef struct task_init_config {
@@ -99,10 +102,13 @@ os_status_t task_set_current(tcb_t *task);
  * 普通应用代码不应直接依赖这些接口组织业务逻辑。
  */
 os_status_t task_system_tick(void);
-os_status_t task_block_current(void *wait_obj, os_tick_t timeout_ticks);
+os_status_t task_block_current(void *wait_obj, os_tick_t timeout_ticks, task_wait_cleanup_fn_t wait_cleanup_locked);
 os_status_t task_unblock(tcb_t *task, task_wait_result_t wait_result);
 void task_exit_current(void);
 tcb_t *task_wait_list_peek_head_task(const list_t *wait_list);
+os_status_t task_effective_priority_update_locked(tcb_t *task, uint8_t new_priority);
+os_status_t task_priority_inheritance_raise_locked(tcb_t *task, uint8_t inherited_priority);
+os_status_t task_priority_inheritance_refresh_locked(tcb_t *task);
 os_status_t task_wait_list_insert_priority_ordered(list_t *wait_list, tcb_t *task);
 void task_wait_list_remove_task(list_t *wait_list, tcb_t *task);
 

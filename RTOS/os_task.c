@@ -13,6 +13,7 @@
 #include <string.h>
 #include "os_port.h"
 #include "os_task.h"
+#include "os_mutex.h"
 
 #define OS_IDLE_TASK_NAME "idle" // 内核自带 idle 任务名称
 #define OS_TICK_COMPARE_HALF_RANGE ((os_tick_t)0x80000000UL) // 基于有符号差值比较时，允许安全比较的最大半区间
@@ -55,12 +56,14 @@ static uint8_t task_timeout_is_supported(os_tick_t timeout_ticks);
 static uint8_t task_tick_is_due(os_tick_t current_tick, os_tick_t target_tick);
 static uint8_t task_tick_deadline_is_before(os_tick_t lhs, os_tick_t rhs);
 static void timed_wait_list_insert_ordered(tcb_t *task);
+static void task_wait_cleanup_invoke_locked(tcb_t *task);
 static os_status_t task_make_runnable_locked(tcb_t *task, task_wait_result_t wait_result);
 static os_status_t task_unblock_locked(tcb_t *task, task_wait_result_t wait_result);
 static os_status_t task_prepare_wait_locked(tcb_t *task,
                                             task_state_t wait_state,
                                             void *wait_obj,
-                                            os_tick_t timeout_ticks);
+                                            os_tick_t timeout_ticks,
+                                            task_wait_cleanup_fn_t wait_cleanup_locked);
 static os_status_t task_wake_timed_tasks_locked(void);
 static os_status_t task_handle_time_slice_tick_locked(void);
 static os_status_t task_detach_from_scheduler_locked(tcb_t *task);
@@ -235,6 +238,210 @@ void task_wait_list_remove_task(list_t *wait_list, tcb_t *task)
     {
         (void)list_remove(wait_list, &task->event_node);
     }
+}
+
+/**
+ * @brief 在临界区内执行 waiter 清理回调。
+ *
+ * @param task 当前正在因 timeout/delete 离开等待态的任务。
+ */
+static void task_wait_cleanup_invoke_locked(tcb_t *task)
+{
+    task_wait_cleanup_fn_t cleanup = NULL; // 当前任务上登记的对象侧清理回调
+
+    /* 只有 BLOCKED 任务才存在“对象等待清理”语义。 */
+    if ((task_is_valid(task) == 0U) || (task->state != TASK_BLOCKED) || (task->wait_cleanup_locked == NULL))
+    {
+        return;
+    }
+
+    /* 先把回调指针摘下来，防止对象侧清理过程中重复进入同一回调。 */
+    cleanup = task->wait_cleanup_locked;
+    task->wait_cleanup_locked = NULL;
+    cleanup(task);
+}
+
+/**
+ * @brief 在临界区内更新任务的当前生效优先级，并在需要时重挂相关链表。
+ *
+ * @param task 待更新的任务对象。
+ * @param new_priority 目标生效优先级。
+ *
+ * @return os_status_t 更新成功返回 OS_STATUS_OK，否则返回具体错误码。
+ */
+os_status_t task_effective_priority_update_locked(tcb_t *task, uint8_t new_priority)
+{
+    list_t *ready_list = NULL;       // 任务当前生效优先级对应的 ready list
+    list_t *wait_list  = NULL;       // 任务当前所在的对象等待链表
+    uint8_t was_running = 0U;        // 非 0 表示更新前该任务正处于 RUNNING
+    uint8_t was_waiting_on_object = 0U; // 非 0 表示更新前该任务正挂在对象等待链表
+
+    /* 目标必须是一个合法 TCB，且新优先级必须落在 ready bitmap 支持范围内。 */
+    if ((task_is_valid(task) == 0U) || (ready_queue_priority_is_valid(new_priority) == 0U))
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* 生效优先级本就相同时，不需要做任何链表重排。 */
+    if (task->priority == new_priority)
+    {
+        return OS_STATUS_OK;
+    }
+
+    was_running = (uint8_t)(task->state == TASK_RUNNING);
+    was_waiting_on_object = (uint8_t)(task->event_node.owner != NULL);
+
+    /* 若任务当前在 ready queue 中，就先从旧优先级链表摘掉，再按新优先级重挂。 */
+    if (task_is_in_runnable_queue(task) != 0U)
+    {
+        ready_queue_remove(&g_task_ready_queue, task);
+        if (task->sched_node.owner != NULL)
+        {
+            return OS_STATUS_INVALID_STATE;
+        }
+
+        task->priority = new_priority;
+        ready_list = task_get_ready_list_by_priority(new_priority);
+        if (ready_list == NULL)
+        {
+            return OS_STATUS_INVALID_STATE;
+        }
+
+        /* 当前正在运行的任务若调整优先级，仍应保持自己是新优先级链表上的当前执行者，
+         * 因此这里用头插保留“继续执行直到重新调度”的语义；非 current 任务仍走尾插。 */
+        if (was_running != 0U)
+        {
+            if (list_insert_head(ready_list, &task->sched_node) == 0U)
+            {
+                return OS_STATUS_INSERT_FAILED;
+            }
+
+            g_task_ready_queue.ready_bitmap |= ready_queue_priority_mask(new_priority);
+            task->state = TASK_RUNNING;
+        }
+        else
+        {
+            ready_queue_insert_tail(&g_task_ready_queue, task);
+            if (task->sched_node.owner != ready_list)
+            {
+                return OS_STATUS_INSERT_FAILED;
+            }
+        }
+
+        return OS_STATUS_OK;
+    }
+
+    /* 若任务当前挂在某个对象等待链表上，则要先摘掉 event_node，
+     * 更新优先级后再按新的生效优先级重插回原等待链表。 */
+    if (was_waiting_on_object != 0U)
+    {
+        os_mutex_t *waiting_mutex = NULL; // 若任务当前阻塞在 mutex 上，这里记录它正在等待的那把锁
+
+        wait_list = task->event_node.owner;
+        if (list_remove(wait_list, &task->event_node) == 0U)
+        {
+            return OS_STATUS_INVALID_STATE;
+        }
+
+        /* 在真正更新生效优先级前，先记住它正在等待的对象。
+         * 对 sem/queue 来说，这个对象不会参与“优先级链式传播”；
+         * 但若它在等 mutex，那么它的优先级变化还要继续传到 mutex owner。 */
+        if (task->wait_obj != NULL)
+        {
+            waiting_mutex = (os_mutex_t *)task->wait_obj;
+        }
+
+        task->priority = new_priority;
+
+        if (task_wait_list_insert_priority_ordered(wait_list, task) != OS_STATUS_OK)
+        {
+            return OS_STATUS_INSERT_FAILED;
+        }
+
+        /* 关键补丁：
+         * 如果这个任务自己正在等待另一把 mutex，那么它的 waiter 排序变化
+         * 不应只停留在本人的 event_node 上，还必须继续刷新那把 mutex 的 owner。
+         * 这里不能只做“raise”，因为链式等待里 waiter 的优先级既可能被抬升，
+         * 也可能因为 timeout/delete 而下降；因此必须统一走 refresh，
+         * 让上游 owner 重新按当前全部 waiter 状态计算生效优先级。 */
+        if ((task->state == TASK_BLOCKED) && (waiting_mutex != NULL) && (waiting_mutex->magic == OS_MUTEX_MAGIC) && (waiting_mutex->owner != NULL))
+        {
+            return task_priority_inheritance_refresh_locked(waiting_mutex->owner);
+        }
+
+        return OS_STATUS_OK;
+    }
+
+    /* 若任务只在 timed-wait 链表里，timed-wait 只按 wake_tick 排序，
+     * 所以这里无需重排 sched_node，只更新当前生效优先级即可。 */
+    task->priority = new_priority;
+    return OS_STATUS_OK;
+}
+
+/**
+ * @brief 在临界区内把任务生效优先级提升到给定继承优先级。
+ *
+ * @param task 需要被提升优先级的任务对象。
+ * @param inherited_priority 当前应当继承到的更高优先级。
+ *
+ * @return os_status_t 提升成功返回 OS_STATUS_OK，否则返回具体错误码。
+ */
+os_status_t task_priority_inheritance_raise_locked(tcb_t *task, uint8_t inherited_priority)
+{
+    /* 非法任务或非法优先级都不允许继续做继承提升。 */
+    if ((task_is_valid(task) == 0U) || (ready_queue_priority_is_valid(inherited_priority) == 0U))
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* 数值更小代表优先级更高；只有 waiter 真正更高时，才需要提升 owner。 */
+    if (inherited_priority >= task->priority)
+    {
+        return OS_STATUS_OK;
+    }
+
+    return task_effective_priority_update_locked(task, inherited_priority);
+}
+
+/**
+ * @brief 在临界区内按当前持有的全部 mutex 重新计算任务应有的生效优先级。
+ *
+ * @param task 需要重算优先级的任务对象。
+ *
+ * @return os_status_t 重算成功返回 OS_STATUS_OK，否则返回具体错误码。
+ */
+os_status_t task_priority_inheritance_refresh_locked(tcb_t *task)
+{
+    list_node_t *node = NULL;          // 当前扫描到的持锁链表节点
+    os_mutex_t  *mutex = NULL;         // node 对应的外层 mutex 对象
+    tcb_t       *waiter = NULL;        // 当前 mutex 上最应该被考虑的 waiter
+    uint8_t      new_priority = 0U;    // 结合 base_priority 与全部 waiter 后得到的新生效优先级
+
+    /* 非法任务不能参与优先级继承重算。 */
+    if (task_is_valid(task) == 0U)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* 重算的起点永远是任务自己的原始优先级。 */
+    new_priority = task->base_priority;
+
+    /* 逐把扫描当前任务持有的 mutex，收集所有 wait_list 头 waiter 的最高优先级。 */
+    node = task->owned_mutex_list.head;
+    while (node != NULL)
+    {
+        mutex = LIST_CONTAINER_OF(node, os_mutex_t, owner_node);
+        waiter = task_wait_list_peek_head_task(&mutex->wait_list);
+
+        if ((waiter != NULL) && (waiter->priority < new_priority))
+        {
+            new_priority = waiter->priority;
+        }
+
+        node = node->next;
+    }
+
+    return task_effective_priority_update_locked(task, new_priority);
 }
 
 /**
@@ -545,6 +752,8 @@ static os_status_t task_init(tcb_t *task, const task_init_config_t *config, uint
     task->wake_tick = 0U;
     task->wait_obj = NULL;
     task->wait_result = TASK_WAIT_RESULT_NONE;
+    task->wait_cleanup_locked = NULL;
+    task->base_priority = config->priority;
     task->priority = config->priority;
     task->state = TASK_BLOCKED;
     task->time_slice = time_slice;
@@ -554,6 +763,7 @@ static os_status_t task_init(tcb_t *task, const task_init_config_t *config, uint
      * 后续才能安全插入 ready queue、timed-wait 或事件等待链表。 */
     list_node_init(&task->sched_node);
     list_node_init(&task->event_node);
+    list_init(&task->owned_mutex_list);
 
     /* 这里只完成“静态初始化”，并没有把任务加入 runnable 集合。 */
     return OS_STATUS_OK;
@@ -756,12 +966,17 @@ static os_status_t task_mark_deleted_locked(tcb_t *task)
         return status;
     }
 
+    /* 若被删任务原本正在等待某个对象，且对象登记了 waiter cleanup hook，
+     * 这里要在“event_node 已摘掉”之后立刻回调，让对象有机会刷新 owner 继承优先级。 */
+    task_wait_cleanup_invoke_locked(task);
+
     /* 删除后不清 magic，让同一 TCB 在未来可被重新 task_create() 复用；
      * 但调度器持有关系和等待元数据都必须彻底清空。 */
     task->state = TASK_DELETED;
     task->wait_obj = NULL;
     task->wake_tick = 0U;
     task->wait_result = TASK_WAIT_RESULT_NONE;
+    task->wait_cleanup_locked = NULL;
     task->time_slice = task->time_slice_reload;
 
     return OS_STATUS_OK;
@@ -806,6 +1021,12 @@ os_status_t task_delete(tcb_t *task)
 
     /* idle 是系统最后的保底 runnable 目标，任何路径都不允许删除。 */
     if (task == &g_idle_task)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* 第一版 mutex 明确禁止“持锁任务被删除”，否则 owner、waiter 和继承优先级恢复都会失配。 */
+    if (list_is_empty(&task->owned_mutex_list) == 0U)
     {
         return OS_STATUS_INVALID_STATE;
     }
@@ -1142,11 +1363,19 @@ static os_status_t task_make_runnable_locked(tcb_t *task, task_wait_result_t wai
         (void)list_remove(task->event_node.owner, &task->event_node);
     }
 
+    /* timeout 唤醒 blocked 任务时，要在 event_node 已摘掉之后调用对象清理回调，
+     * 让 mutex 之类的对象及时刷新 owner 的继承优先级。 */
+    if ((task->state == TASK_BLOCKED) && (wait_result == TASK_WAIT_RESULT_TIMEOUT))
+    {
+        task_wait_cleanup_invoke_locked(task);
+    }
+
     /* 等待结束后，把等待相关元数据全部清理掉，
      * 并把时间片恢复到初始值，等待再次运行时重新消费。 */
     task->wake_tick = 0U;
     task->wait_obj = NULL;
     task->wait_result = wait_result;
+    task->wait_cleanup_locked = NULL;
     task->time_slice = task->time_slice_reload;
 
     /* 最后按普通 runnable 任务重新尾插回 ready queue，
@@ -1195,7 +1424,8 @@ static os_status_t task_unblock_locked(tcb_t *task, task_wait_result_t wait_resu
 static os_status_t task_prepare_wait_locked(tcb_t *task,
                                             task_state_t wait_state,
                                             void *wait_obj,
-                                            os_tick_t timeout_ticks)
+                                            os_tick_t timeout_ticks,
+                                            task_wait_cleanup_fn_t wait_cleanup_locked)
 {
     os_status_t status = OS_STATUS_OK;
 
@@ -1260,6 +1490,7 @@ static os_status_t task_prepare_wait_locked(tcb_t *task,
     task->state = wait_state;
     task->wait_obj = wait_obj;
     task->wait_result = TASK_WAIT_RESULT_NONE;
+    task->wait_cleanup_locked = wait_cleanup_locked;
     task->time_slice = task->time_slice_reload;
 
     if (timeout_ticks != OS_WAIT_FOREVER)
@@ -1505,7 +1736,7 @@ os_status_t task_delay(os_tick_t delay_ticks)
     /* 从这里开始，当前任务会离开 runnable 集合；
      * 因此整个“摘链 + 选出 next task + 提交 PendSV”必须放在同一个临界区内。 */
     primask = os_port_enter_critical();
-    status = task_prepare_wait_locked(g_current_task, TASK_SLEEPING, NULL, delay_ticks);
+    status = task_prepare_wait_locked(g_current_task, TASK_SLEEPING, NULL, delay_ticks, NULL);
 
     if (status == OS_STATUS_SWITCH_REQUIRED)
     {
@@ -1532,7 +1763,7 @@ os_status_t task_delay(os_tick_t delay_ticks)
  * @return os_status_t 成功进入阻塞路径并最终恢复返回时返回 OS_STATUS_OK，
  *                     否则返回具体错误码。
  */
-os_status_t task_block_current(void *wait_obj, os_tick_t timeout_ticks)
+os_status_t task_block_current(void *wait_obj, os_tick_t timeout_ticks, task_wait_cleanup_fn_t wait_cleanup_locked)
 {
     os_status_t status = OS_STATUS_OK;
     uint32_t primask = 0U;
@@ -1557,6 +1788,7 @@ os_status_t task_block_current(void *wait_obj, os_tick_t timeout_ticks)
         if (g_current_task != NULL)
         {
             g_current_task->wait_result = TASK_WAIT_RESULT_TIMEOUT;
+            g_current_task->wait_cleanup_locked = NULL;
         }
 
         return OS_STATUS_OK;
@@ -1566,7 +1798,7 @@ os_status_t task_block_current(void *wait_obj, os_tick_t timeout_ticks)
      * 因此和 task_delay() 一样，要把“摘链 + 调度 + PendSV 置 pending”
      * 绑在同一个临界区里完成。 */
     primask = os_port_enter_critical();
-    status = task_prepare_wait_locked(g_current_task, TASK_BLOCKED, wait_obj, timeout_ticks);
+    status = task_prepare_wait_locked(g_current_task, TASK_BLOCKED, wait_obj, timeout_ticks, wait_cleanup_locked);
 
     if (status == OS_STATUS_SWITCH_REQUIRED)
     {
@@ -1633,6 +1865,15 @@ void task_exit_current(void)
 
     /* idle 不能删除；若真的走到这里，说明调用链已经严重失配，直接停住。 */
     if (current_task == &g_idle_task)
+    {
+        while (1)
+        {
+        }
+    }
+
+    /* 第一版 mutex 明确禁止“持锁任务直接 return 自删”；
+     * 若真的发生，直接停机暴露错误，不做隐式释放。 */
+    if (list_is_empty(&current_task->owned_mutex_list) == 0U)
     {
         while (1)
         {

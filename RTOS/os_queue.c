@@ -470,7 +470,7 @@ os_status_t os_queue_send(os_queue_t *queue, const void *msg, os_tick_t timeout_
             return status;
         }
 
-        status = task_block_current(queue, remaining_timeout);
+        status = task_block_current(queue, remaining_timeout, NULL);
         if (status != OS_STATUS_OK)
         {
             /* 若在真正阻塞前失败，要把刚刚挂进 send_wait_list 的 event_node 立即摘掉。 */
@@ -617,7 +617,7 @@ os_status_t os_queue_recv(os_queue_t *queue, void *msg, os_tick_t timeout_ticks)
             return status;
         }
 
-        status = task_block_current(queue, remaining_timeout);
+        status = task_block_current(queue, remaining_timeout, NULL);
         if (status != OS_STATUS_OK)
         {
             /* 若在真正阻塞前失败，要把刚刚挂进 recv_wait_list 的 event_node 立即摘掉。 */
@@ -698,6 +698,69 @@ os_status_t os_queue_send_from_isr(os_queue_t *queue, const void *msg)
     }
 
     /* 若因此唤醒了更高优先级 receiver，就在 ISR 内部直接 pend PendSV。 */
+    if (status == OS_STATUS_SWITCH_REQUIRED)
+    {
+        os_port_trigger_pendsv();
+    }
+
+    os_port_exit_critical(primask);
+    return OS_STATUS_OK;
+}
+
+/**
+ * @brief 在 ISR 中从消息队列接收一条固定大小消息。
+ *
+ * @param queue 目标消息队列对象。
+ * @param msg 调用方提供的接收缓冲区地址。
+ *
+ * @return os_status_t 接收成功返回 OS_STATUS_OK；
+ *                     若队列空导致立即失败，则返回 OS_STATUS_TIMEOUT；
+ *                     失败时返回其他具体错误码。
+ */
+os_status_t os_queue_recv_from_isr(os_queue_t *queue, void *msg)
+{
+    os_status_t status = OS_STATUS_OK; // 当前 ISR 接收路径得到的状态码
+    uint32_t    primask = 0U;          // 当前外层临界区保存的 PRIMASK 原值
+
+    /* from-isr 版本只允许在异常/中断上下文里调用。 */
+    if (os_port_is_in_interrupt() == 0U)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* 队列对象和接收缓冲区都必须合法。 */
+    if ((os_queue_is_valid(queue) == 0U) || (msg == NULL))
+    {
+        return OS_STATUS_INVALID_PARAM;
+    }
+
+    /* ISR 接收同样会读写 count/head_index 和 send_wait_list，
+     * 所以这里也要在临界区内完成。 */
+    primask = os_port_enter_critical();
+
+    /* ISR 不允许阻塞；队列空时直接按“立即失败”语义返回 TIMEOUT。 */
+    if (queue->count == 0U)
+    {
+        os_port_exit_critical(primask);
+        return OS_STATUS_TIMEOUT;
+    }
+
+    status = os_queue_recv_copy_locked(queue, msg);
+    if (status != OS_STATUS_OK)
+    {
+        os_port_exit_critical(primask);
+        return status;
+    }
+
+    /* ISR 接收成功后，同样只尝试唤醒 sender。 */
+    status = os_queue_wake_first_sender_locked(queue);
+    if ((status != OS_STATUS_OK) && (status != OS_STATUS_NO_CHANGE) && (status != OS_STATUS_SWITCH_REQUIRED))
+    {
+        os_port_exit_critical(primask);
+        return status;
+    }
+
+    /* 若因此唤醒了更高优先级 sender，就在 ISR 内部直接 pend PendSV。 */
     if (status == OS_STATUS_SWITCH_REQUIRED)
     {
         os_port_trigger_pendsv();

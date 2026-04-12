@@ -161,7 +161,7 @@ os_status_t os_sem_take(os_sem_t *sem, os_tick_t timeout_ticks)
 
     /* 当前实现要求“对象等待链表挂链”和“task_block_current() 提交等待态”
      * 紧挨着发生，避免中间窗口里对象给出信号却找不到合法 waiter。 */
-    status = task_block_current(sem, timeout_ticks);
+    status = task_block_current(sem, timeout_ticks, NULL);
     if (status != OS_STATUS_OK)
     {
         /* 若在真正阻塞前就失败，必须把刚刚挂进去的 event_node 立即摘掉，
