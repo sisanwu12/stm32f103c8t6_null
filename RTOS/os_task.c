@@ -113,6 +113,129 @@ static uint8_t task_is_in_timed_wait_list(const tcb_t *task)
 }
 
 /**
+ * @brief 查看某条对象等待链表头部的 waiter。
+ *
+ * @param wait_list 待查看的对象等待链表。
+ *
+ * @return tcb_t* 当前最应该被对象唤醒的 waiter；若链表为空则返回 NULL。
+ */
+tcb_t *task_wait_list_peek_head_task(const list_t *wait_list)
+{
+    /* 空链表对象或空头节点都表示“当前没有 waiter 可唤醒”。 */
+    if ((wait_list == NULL) || (wait_list->head == NULL))
+    {
+        return NULL;
+    }
+
+    /* 对象等待链表统一通过 event_node 挂接任务对象，
+     * 因此队头节点可以直接反推出外层 tcb_t。 */
+    return LIST_CONTAINER_OF(wait_list->head, tcb_t, event_node);
+}
+
+/**
+ * @brief 按“高优先级优先、同优先级 FIFO”把任务插入对象等待链表。
+ *
+ * @param wait_list 目标对象等待链表。
+ * @param task 当前准备进入等待态的任务。
+ *
+ * @return os_status_t 插入成功返回 OS_STATUS_OK，否则返回具体错误码。
+ */
+os_status_t task_wait_list_insert_priority_ordered(list_t *wait_list, tcb_t *task)
+{
+    list_node_t *current_node = NULL; // 当前扫描到的等待链表节点
+    list_node_t *new_node     = NULL; // 当前待插入任务对应的 event_node
+    tcb_t       *queued_task  = NULL; // current_node 反推得到的外层任务对象
+
+    /* 等待链表插入要求同时拿到合法链表对象与合法任务对象。 */
+    if ((wait_list == NULL) || (task_is_valid(task) == 0U))
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    new_node = &task->event_node;
+
+    /* event_node 只允许挂在一条对象等待链表上；
+     * 若 owner 已非空，说明调用方的等待状态组织已经失配。 */
+    if (new_node->owner != NULL)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* 空等待链表时，当前任务直接成为首个 waiter。 */
+    if (wait_list->head == NULL)
+    {
+        if (list_insert_tail(wait_list, new_node) == 0U)
+        {
+            return OS_STATUS_INSERT_FAILED;
+        }
+
+        return OS_STATUS_OK;
+    }
+
+    /* 非空等待链表按优先级从高到低扫描：
+     * 数值越小优先级越高，所以一旦发现当前任务 priority 更高，
+     * 就把它插到第一个“优先级更低”的 waiter 前面。 */
+    current_node = wait_list->head;
+    while (current_node != NULL)
+    {
+        queued_task = LIST_CONTAINER_OF(current_node, tcb_t, event_node);
+        if (task->priority < queued_task->priority)
+        {
+            /* 找到插入点后，手工修补双向链表指针，让当前任务插到 current_node 前面。 */
+            new_node->prev  = current_node->prev;
+            new_node->next  = current_node;
+            new_node->owner = wait_list;
+
+            if (current_node->prev != NULL)
+            {
+                current_node->prev->next = new_node;
+            }
+            else
+            {
+                wait_list->head = new_node;
+            }
+
+            current_node->prev = new_node;
+            wait_list->item_count++;
+            return OS_STATUS_OK;
+        }
+
+        /* 同优先级任务要保持 FIFO，所以这里继续向后扫描，不抢到已有同优先级 waiter 前面。 */
+        current_node = current_node->next;
+    }
+
+    /* 扫到链尾仍未找到更低优先级 waiter，说明当前任务应当排在最后。 */
+    if (list_insert_tail(wait_list, new_node) == 0U)
+    {
+        return OS_STATUS_INSERT_FAILED;
+    }
+
+    return OS_STATUS_OK;
+}
+
+/**
+ * @brief 从指定对象等待链表中摘掉任务的 event_node。
+ *
+ * @param wait_list 目标对象等待链表。
+ * @param task 待摘除的任务对象。
+ */
+void task_wait_list_remove_task(list_t *wait_list, tcb_t *task)
+{
+    /* 没有合法链表或合法任务时，不存在可摘除的等待节点。 */
+    if ((wait_list == NULL) || (task_is_valid(task) == 0U))
+    {
+        return;
+    }
+
+    /* 只有 event_node 当前确实挂在这条等待链表上时，才执行摘链；
+     * 这样可以避免误删其他对象上的 waiter。 */
+    if (task->event_node.owner == wait_list)
+    {
+        (void)list_remove(wait_list, &task->event_node);
+    }
+}
+
+/**
  * @brief 根据优先级返回对应的可运行链表指针。
  *
  * @param priority 任务优先级。

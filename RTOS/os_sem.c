@@ -18,9 +18,6 @@
 #define OS_SEM_BINARY_MAX_COUNT 1U // 当前阶段的 public API 只暴露二值语义，因此最大计数固定为 1
 
 static uint8_t os_sem_is_valid(const os_sem_t *sem);
-static os_status_t os_sem_wait_list_insert_task_locked(os_sem_t *sem, tcb_t *task);
-static void os_sem_wait_list_remove_task_locked(os_sem_t *sem, tcb_t *task);
-static tcb_t *os_sem_wait_list_peek_head_task(const os_sem_t *sem);
 static os_status_t os_sem_give_common(os_sem_t *sem);
 
 /**
@@ -58,130 +55,6 @@ static uint8_t os_sem_is_valid(const os_sem_t *sem)
     }
 
     return 1U;
-}
-
-/**
- * @brief 按“高优先级优先、同优先级 FIFO”把任务插入信号量等待链表。
- *
- * @param sem 目标信号量对象。
- * @param task 当前准备进入等待态的任务。
- *
- * @return os_status_t 插入成功返回 OS_STATUS_OK，否则返回具体错误码。
- */
-static os_status_t os_sem_wait_list_insert_task_locked(os_sem_t *sem, tcb_t *task)
-{
-    list_node_t *current_node = NULL; // 当前扫描到的等待链表节点
-    list_node_t *new_node     = NULL; // 当前待插入任务对应的 event_node
-    tcb_t       *queued_task  = NULL; // current_node 对应的外层任务对象
-
-    /* wait list 插入必须同时拿到合法 semaphore 和合法 task。 */
-    if ((os_sem_is_valid(sem) == 0U) || (task == NULL))
-    {
-        return OS_STATUS_INVALID_STATE;
-    }
-
-    new_node = &task->event_node;
-
-    /* event_node 若已经挂在别的对象等待链表上，就不能再次插入。 */
-    if (new_node->owner != NULL)
-    {
-        return OS_STATUS_INVALID_STATE;
-    }
-
-    /* 空等待链表时，当前任务直接成为首个 waiter。 */
-    if (sem->wait_list.head == NULL)
-    {
-        if (list_insert_tail(&sem->wait_list, new_node) == 0U)
-        {
-            return OS_STATUS_INSERT_FAILED;
-        }
-
-        return OS_STATUS_OK;
-    }
-
-    /* 非空等待链表按优先级从高到低扫描：
-     * 数值越小优先级越高，所以只要当前任务 priority 更高，
-     * 就应当插到 queued_task 前面。相同优先级时继续向后走，保证 FIFO。 */
-    current_node = sem->wait_list.head;
-    while (current_node != NULL)
-    {
-        queued_task = LIST_CONTAINER_OF(current_node, tcb_t, event_node);
-        if (task->priority < queued_task->priority)
-        {
-            /* 找到插入点后，手工修补双向链表指针，
-             * 让当前任务排到第一个“优先级更低”的 waiter 前面。 */
-            new_node->prev = current_node->prev;
-            new_node->next = current_node;
-            new_node->owner = &sem->wait_list;
-
-            if (current_node->prev != NULL)
-            {
-                current_node->prev->next = new_node;
-            }
-            else
-            {
-                sem->wait_list.head = new_node;
-            }
-
-            current_node->prev = new_node;
-            sem->wait_list.item_count++;
-            return OS_STATUS_OK;
-        }
-
-        /* 同优先级或更高优先级 waiter 会被保留在前面，
-         * 继续向后扫描，直到找到更低优先级或链尾。 */
-        current_node = current_node->next;
-    }
-
-    /* 扫到链尾仍未找到更低优先级 waiter，说明当前任务应当排在最后；
-     * 这同时保证了“同优先级 FIFO”。 */
-    if (list_insert_tail(&sem->wait_list, new_node) == 0U)
-    {
-        return OS_STATUS_INSERT_FAILED;
-    }
-
-    return OS_STATUS_OK;
-}
-
-/**
- * @brief 从信号量等待链表中摘掉指定任务的事件节点。
- *
- * @param sem 目标信号量对象。
- * @param task 待摘除的任务。
- */
-static void os_sem_wait_list_remove_task_locked(os_sem_t *sem, tcb_t *task)
-{
-    /* 调用方若没有给出合法 semaphore/task，就没有可摘除的节点。 */
-    if ((os_sem_is_valid(sem) == 0U) || (task == NULL))
-    {
-        return;
-    }
-
-    /* 只有 event_node 当前确实挂在这个 semaphore 的 wait_list 上时，
-     * 才执行摘链；这样可以避免误删其他对象上的等待节点。 */
-    if (task->event_node.owner == &sem->wait_list)
-    {
-        (void)list_remove(&sem->wait_list, &task->event_node);
-    }
-}
-
-/**
- * @brief 查看当前等待链表头部的 waiter。
- *
- * @param sem 目标信号量对象。
- *
- * @return tcb_t* 当前最应该被唤醒的 waiter；若链表为空则返回 NULL。
- */
-static tcb_t *os_sem_wait_list_peek_head_task(const os_sem_t *sem)
-{
-    /* 无效 semaphore 或空等待链表都表示“当前没有 waiter 可唤醒”。 */
-    if ((os_sem_is_valid(sem) == 0U) || (sem->wait_list.head == NULL))
-    {
-        return NULL;
-    }
-
-    /* wait_list 头节点天然等价于“最高优先级优先、同优先级最早等待者优先”。 */
-    return LIST_CONTAINER_OF(sem->wait_list.head, tcb_t, event_node);
 }
 
 /**
@@ -279,7 +152,7 @@ os_status_t os_sem_take(os_sem_t *sem, os_tick_t timeout_ticks)
 
     /* 慢路径先把当前任务按对象等待规则挂进 semaphore wait_list，
      * 再调用任务层阻塞接口让它离开 runnable 集合。 */
-    status = os_sem_wait_list_insert_task_locked(sem, current_task);
+    status = task_wait_list_insert_priority_ordered(&sem->wait_list, current_task);
     if (status != OS_STATUS_OK)
     {
         os_port_exit_critical(primask);
@@ -293,7 +166,7 @@ os_status_t os_sem_take(os_sem_t *sem, os_tick_t timeout_ticks)
     {
         /* 若在真正阻塞前就失败，必须把刚刚挂进去的 event_node 立即摘掉，
          * 否则 wait_list 里会残留一个并未真正进入等待态的伪 waiter。 */
-        os_sem_wait_list_remove_task_locked(sem, current_task);
+        task_wait_list_remove_task(&sem->wait_list, current_task);
         os_port_exit_critical(primask);
         return status;
     }
@@ -348,7 +221,7 @@ static os_status_t os_sem_give_common(os_sem_t *sem)
     }
 
     /* wait_list 头节点就是当前最应该被唤醒的任务。 */
-    waiter = os_sem_wait_list_peek_head_task(sem);
+    waiter = task_wait_list_peek_head_task(&sem->wait_list);
     if (waiter != NULL)
     {
         /* 只要有 waiter，就把这次 give 直接转交给它；
