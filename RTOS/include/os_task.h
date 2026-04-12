@@ -83,6 +83,7 @@ typedef struct ready_queue {
 
 os_status_t task_system_init(void);
 os_status_t task_create(tcb_t *task, const task_init_config_t *config);
+os_status_t task_delete(tcb_t *task);
 os_status_t task_schedule(void);
 os_status_t task_yield(void);
 os_status_t task_delay(os_tick_t delay_ticks);
@@ -100,6 +101,7 @@ os_status_t task_set_current(tcb_t *task);
 os_status_t task_system_tick(void);
 os_status_t task_block_current(void *wait_obj, os_tick_t timeout_ticks);
 os_status_t task_unblock(tcb_t *task, task_wait_result_t wait_result);
+void task_exit_current(void);
 tcb_t *task_wait_list_peek_head_task(const list_t *wait_list);
 os_status_t task_wait_list_insert_priority_ordered(list_t *wait_list, tcb_t *task);
 void task_wait_list_remove_task(list_t *wait_list, tcb_t *task);

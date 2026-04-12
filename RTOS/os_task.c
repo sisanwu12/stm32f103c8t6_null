@@ -63,6 +63,8 @@ static os_status_t task_prepare_wait_locked(tcb_t *task,
                                             os_tick_t timeout_ticks);
 static os_status_t task_wake_timed_tasks_locked(void);
 static os_status_t task_handle_time_slice_tick_locked(void);
+static os_status_t task_detach_from_scheduler_locked(tcb_t *task);
+static os_status_t task_mark_deleted_locked(tcb_t *task);
 
 /**
  * @brief 判断任务是否已经处于全局可运行任务集合中。
@@ -675,6 +677,190 @@ os_status_t task_create(tcb_t *task, const task_init_config_t *config)
 
     /* 其余情况原样向上传递，尤其是运行期创建高优先级任务时的抢占需求。 */
     return status;
+}
+
+/**
+ * @brief 在临界区内把目标任务从调度器当前持有的所有结构中摘掉。
+ *
+ * @param task 待脱离调度器持有关系的任务对象。
+ *
+ * @return os_status_t 摘除成功返回 OS_STATUS_OK，否则返回具体错误码。
+ */
+static os_status_t task_detach_from_scheduler_locked(tcb_t *task)
+{
+    /* 非法 TCB 不允许继续访问链表归属信息。 */
+    if (task_is_valid(task) == 0U)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* sched_node 若在 ready queue 中，就用 ready_queue_remove() 摘掉，
+     * 这样 ready bitmap 也会一起被维护。 */
+    if (task_is_in_runnable_queue(task) != 0U)
+    {
+        ready_queue_remove(&g_task_ready_queue, task);
+        if (task->sched_node.owner != NULL)
+        {
+            return OS_STATUS_INVALID_STATE;
+        }
+    }
+    else if (task_is_in_timed_wait_list(task) != 0U)
+    {
+        /* sched_node 若在 timed-wait 链表中，则直接从 timed-wait 摘掉即可。 */
+        if (list_remove(&g_task_timed_wait_list, &task->sched_node) == 0U)
+        {
+            return OS_STATUS_INVALID_STATE;
+        }
+    }
+    else if ((task->sched_node.owner != NULL) && (task != g_current_task))
+    {
+        /* 按当前设计，非 current 任务的 sched_node 只允许出现在 ready/timed-wait。
+         * 若 owner 指向别的链表，说明调度器内部状态已经失配。 */
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* event_node 若当前挂在某个对象等待链表上，也必须同步摘掉，
+     * 否则对象满足时仍可能错误地把已删任务重新唤醒。 */
+    if (task->event_node.owner != NULL)
+    {
+        if (list_remove(task->event_node.owner, &task->event_node) == 0U)
+        {
+            return OS_STATUS_INVALID_STATE;
+        }
+    }
+
+    return OS_STATUS_OK;
+}
+
+/**
+ * @brief 在临界区内把任务状态推进为 DELETED，并清理等待元数据。
+ *
+ * @param task 待标记为删除态的任务对象。
+ *
+ * @return os_status_t 标记成功返回 OS_STATUS_OK，否则返回具体错误码。
+ */
+static os_status_t task_mark_deleted_locked(tcb_t *task)
+{
+    os_status_t status = OS_STATUS_OK;
+
+    /* 只有合法 TCB 才允许继续走删除态清理。 */
+    if (task_is_valid(task) == 0U)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* 先把任务从 ready/timed-wait/对象等待链表里统一摘掉。 */
+    status = task_detach_from_scheduler_locked(task);
+    if (status != OS_STATUS_OK)
+    {
+        return status;
+    }
+
+    /* 删除后不清 magic，让同一 TCB 在未来可被重新 task_create() 复用；
+     * 但调度器持有关系和等待元数据都必须彻底清空。 */
+    task->state = TASK_DELETED;
+    task->wait_obj = NULL;
+    task->wake_tick = 0U;
+    task->wait_result = TASK_WAIT_RESULT_NONE;
+    task->time_slice = task->time_slice_reload;
+
+    return OS_STATUS_OK;
+}
+
+/**
+ * @brief 删除一个任务对象，并在需要时触发重新调度。
+ *
+ * @param task 待删除的任务对象。
+ *
+ * @return os_status_t 删除成功返回 OS_STATUS_OK；失败时返回具体错误码。
+ */
+os_status_t task_delete(tcb_t *task)
+{
+    os_status_t status = OS_STATUS_OK;
+    uint32_t primask = 0U;
+    uint8_t scheduler_running = 0U;
+
+    /* 删除接口要求调用方明确给出目标任务对象。 */
+    if (task == NULL)
+    {
+        return OS_STATUS_INVALID_PARAM;
+    }
+
+    /* 任务系统尚未初始化时，不存在可删除的内核任务对象。 */
+    if (g_task_system_initialized == 0U)
+    {
+        return OS_STATUS_NOT_INITIALIZED;
+    }
+
+    /* 删除路径只允许在线程态调用，ISR 中不负责管理任务生命周期。 */
+    if (os_port_is_in_interrupt() != 0U)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* 非法 TCB 无法安全参与删除流程。 */
+    if (task_is_valid(task) == 0U)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* idle 是系统最后的保底 runnable 目标，任何路径都不允许删除。 */
+    if (task == &g_idle_task)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* 已经是 DELETED 的对象不允许再次删除。 */
+    if (task->state == TASK_DELETED)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* 只有当前仍被调度器持有的对象，才允许进入删除流程。 */
+    if (task_is_known_to_scheduler(task) == 0U)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    /* 当前任务自删语义固定为 no-return，由专门 helper 负责完成。 */
+    if (task == g_current_task)
+    {
+        task_exit_current();
+
+        /* 正常情况下不会走到这里；若 helper 意外返回，就按错误兜底。 */
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    primask = os_port_enter_critical();
+
+    /* 删除 non-current 任务时，先统一做脱链和删除态清理。 */
+    status = task_mark_deleted_locked(task);
+    if (status != OS_STATUS_OK)
+    {
+        os_port_exit_critical(primask);
+        return status;
+    }
+
+    /* 若当前已经有 current task，说明这是运行期删除；后续 schedule() 若要求切换，
+     * 需要在恢复中断前先提交 PendSV。 */
+    scheduler_running = (uint8_t)(g_current_task != NULL);
+
+    status = task_schedule();
+    if ((status != OS_STATUS_OK) && (status != OS_STATUS_NO_CHANGE) && (status != OS_STATUS_SWITCH_REQUIRED))
+    {
+        os_port_exit_critical(primask);
+        return status;
+    }
+
+    /* 只有运行期删除 non-current 任务且调度器明确要求切换时，
+     * 才在恢复中断前先 pend PendSV。 */
+    if ((status == OS_STATUS_SWITCH_REQUIRED) && (scheduler_running != 0U))
+    {
+        os_port_trigger_pendsv();
+    }
+
+    os_port_exit_critical(primask);
+    return OS_STATUS_OK;
 }
 
 /**
@@ -1418,6 +1604,74 @@ os_status_t task_unblock(tcb_t *task, task_wait_result_t wait_result)
 
     /* 返回值保留“唤醒后是否需要切换”的调度信息，交由上层决定是否触发 PendSV。 */
     return status;
+}
+
+/**
+ * @brief 删除当前运行任务并切走，正常情况下不返回。
+ */
+void task_exit_current(void)
+{
+    os_status_t status = OS_STATUS_OK;
+    uint32_t primask = 0U;
+    tcb_t *current_task = g_current_task;
+
+    /* 这条 helper 只允许在线程态删除一个真实 RUNNING 的当前任务。 */
+    if (os_port_is_in_interrupt() != 0U)
+    {
+        while (1)
+        {
+        }
+    }
+
+    status = task_validate_running_task(current_task);
+    if (status != OS_STATUS_OK)
+    {
+        while (1)
+        {
+        }
+    }
+
+    /* idle 不能删除；若真的走到这里，说明调用链已经严重失配，直接停住。 */
+    if (current_task == &g_idle_task)
+    {
+        while (1)
+        {
+        }
+    }
+
+    primask = os_port_enter_critical();
+
+    /* 先把当前任务从调度器持有结构中摘掉，并标记成 DELETED。 */
+    status = task_mark_deleted_locked(current_task);
+    if (status != OS_STATUS_OK)
+    {
+        os_port_exit_critical(primask);
+        while (1)
+        {
+        }
+    }
+
+    /* 当前任务删掉后必须重新调度，保证 g_next_task 指向一个新的合法目标。 */
+    status = task_schedule();
+    if (status != OS_STATUS_SWITCH_REQUIRED)
+    {
+        /* 正常情况下自删后一定需要切走到别的 runnable 任务；
+         * 若不是，说明调度器状态已经异常。 */
+        os_port_exit_critical(primask);
+        while (1)
+        {
+        }
+    }
+
+    /* 在恢复中断前先 pend PendSV，保证当前已删除任务不会继续向前执行用户代码。 */
+    os_port_trigger_pendsv();
+    os_port_exit_critical(primask);
+
+    /* 正常情况下恢复中断后，PendSV 会立刻把当前已删除任务切走；
+     * 若链路异常返回到这里，就永远停住，避免带着已删除任务继续执行。 */
+    while (1)
+    {
+    }
 }
 
 /**

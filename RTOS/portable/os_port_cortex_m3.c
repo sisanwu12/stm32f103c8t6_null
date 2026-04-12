@@ -46,10 +46,18 @@ static OS_PORT_USED void os_port_configure_exception_priorities(void);
 static OS_PORT_USED uint32_t *os_port_switch_context(uint32_t *stack_pointer);
 
 /**
- * @brief 当任务函数意外返回时进入死循环，便于调试定位错误任务。
+ * @brief 当任务函数返回时，自动走当前任务自删路径。
+ *
+ * @note 正常情况下任务函数不应直接 return；
+ *       但当前版本把“返回”收敛成“自动删除当前任务并切到下一个任务”，
+ *       这样任务生命周期才能真正闭环。
  */
 static void os_port_task_exit_error(void)
 {
+    task_exit_current();
+
+    /* 正常情况下 task_exit_current() 不会返回；
+     * 若它意外返回，说明删除链路已经异常，只能停在本地死循环。 */
     while (1)
     {
     }
