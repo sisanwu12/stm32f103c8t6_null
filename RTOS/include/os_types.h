@@ -32,7 +32,8 @@ typedef enum {
     OS_STATUS_ALREADY_INITIALIZED, // 对象已经完成初始化
     OS_STATUS_NOT_INITIALIZED,     // 模块尚未初始化
     OS_STATUS_EMPTY,               // 容器为空
-    OS_STATUS_INSERT_FAILED        // 插入或挂链操作失败
+    OS_STATUS_INSERT_FAILED,       // 插入或挂链操作失败
+    OS_STATUS_TIMEOUT              // 等待超时或“立即失败”语义下未能获得对象
 } os_status_t; // RTOS 状态码定义
 
 #endif /* __OS_TYPES_H__ */

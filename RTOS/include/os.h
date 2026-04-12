@@ -13,6 +13,7 @@
 #ifndef __OS_H__
 #define __OS_H__
 
+#include "os_sem.h"
 #include "os_task.h"
 
 /**
