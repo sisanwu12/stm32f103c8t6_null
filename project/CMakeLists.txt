@@ -19,12 +19,17 @@ set(LIB_DIR "${ROOT_DIR}/Libraries")
 set(CMSIS_DIR "${ROOT_DIR}/CMSIS")
 set(CMSIS_CORE_INC_DIR "${CMSIS_DIR}/Core/Include")
 set(CMSIS_DEVICE_INC_DIR "${CMSIS_DIR}/Device/ST/STM32F1xx/Include")
+set(SYSTEM_DIR "${LIB_DIR}/system")
+set(STARTUP_DIR "${LIB_DIR}/startup")
 set(DRIVER_DIR "${LIB_DIR}/driver")
+set(DRIVER_API_DIR "${DRIVER_DIR}/api")
+set(DRIVER_LL_DIR "${DRIVER_DIR}/ll")
+set(LINKER_DIR "${LIB_DIR}/linkscrip")
 set(USER_DIR "${ROOT_DIR}/user")
 set(RTOS_DIR "${ROOT_DIR}/RTOS")
 set(RTOS_INC_DIR "${RTOS_DIR}/include")
 set(RTOS_PORT_DIR "${RTOS_DIR}/portable")
-set(LINKER_SCRIPT "${LIB_DIR}/stm32f103c8t6.ld")
+set(LINKER_SCRIPT "${LINKER_DIR}/stm32f103c8t6.ld")
 
 # 在配置阶段打印出当前实际使用的工具链信息，便于确认确实来自 Nix dev shell。
 message(STATUS "Nix toolchain C compiler : ${CMAKE_C_COMPILER}")
@@ -57,29 +62,27 @@ set(COMMON_COMPILE_OPTIONS
 )
 
 # 当前工程目录结构已经调整过，这里按目录自动收集源码，避免每次新增文件都手工维护列表。
-file(GLOB LIBRARY_SOURCES CONFIGURE_DEPENDS "${LIB_DIR}/*.c")
-file(GLOB DRIVER_SOURCES CONFIGURE_DEPENDS "${DRIVER_DIR}/*.c")
+file(GLOB STARTUP_SOURCES CONFIGURE_DEPENDS "${STARTUP_DIR}/*.c")
+file(GLOB SYSTEM_SOURCES CONFIGURE_DEPENDS "${SYSTEM_DIR}/*.c")
+file(GLOB DRIVER_API_SOURCES CONFIGURE_DEPENDS "${DRIVER_API_DIR}/*.c")
+file(GLOB DRIVER_LL_SOURCES CONFIGURE_DEPENDS "${DRIVER_LL_DIR}/*.c")
 file(GLOB RTOS_CORE_SOURCES CONFIGURE_DEPENDS "${RTOS_DIR}/*.c")
 file(GLOB RTOS_PORT_SOURCES CONFIGURE_DEPENDS "${RTOS_PORT_DIR}/*.c")
 file(GLOB APP_SOURCES CONFIGURE_DEPENDS "${USER_DIR}/*.c")
 
-list(SORT LIBRARY_SOURCES)
-list(SORT DRIVER_SOURCES)
+list(SORT STARTUP_SOURCES)
+list(SORT SYSTEM_SOURCES)
+list(SORT DRIVER_API_SOURCES)
+list(SORT DRIVER_LL_SOURCES)
 list(SORT RTOS_CORE_SOURCES)
 list(SORT RTOS_PORT_SOURCES)
 list(SORT APP_SOURCES)
 
-# 启动文件负责中断向量表、复位入口、.data 拷贝与 .bss 清零；
-# 其余 Libraries/*.c 视作系统支持文件，例如 system_stm32f103c8t6.c。
-set(STARTUP_SOURCES "")
-set(SYSTEM_SOURCES "")
-foreach(source IN LISTS LIBRARY_SOURCES)
-    if(source MATCHES "/startup_[^/]+\\.c$")
-        list(APPEND STARTUP_SOURCES "${source}")
-    else()
-        list(APPEND SYSTEM_SOURCES "${source}")
-    endif()
-endforeach()
+# API 层与 LL 层驱动在新目录结构中分别维护，这里统一合并到驱动源码列表。
+set(DRIVER_SOURCES
+    ${DRIVER_API_SOURCES}
+    ${DRIVER_LL_SOURCES}
+)
 
 # RTOS 内核与端口层源码统一在这里维护，确保这些源文件也进入 compile_commands.json。
 set(RTOS_SOURCES
@@ -107,7 +110,8 @@ set(PROJECT_SOURCES
 if(NOT PROJECT_SOURCES)
     message(FATAL_ERROR
         "No source files were found. Check the current project layout under "
-        "Libraries/, Libraries/driver/, RTOS/, RTOS/portable/, and user/."
+        "Libraries/startup/, Libraries/system/, Libraries/driver/api/, "
+        "Libraries/driver/ll/, RTOS/, RTOS/portable/, and user/."
     )
 endif()
 
@@ -137,7 +141,10 @@ target_include_directories(null_proj PRIVATE
     "${LIB_DIR}"
     "${CMSIS_CORE_INC_DIR}"
     "${CMSIS_DEVICE_INC_DIR}"
-    "${DRIVER_DIR}"
+    "${SYSTEM_DIR}"
+    "${STARTUP_DIR}"
+    "${DRIVER_API_DIR}"
+    "${DRIVER_LL_DIR}"
     "${RTOS_INC_DIR}"
     "${RTOS_PORT_DIR}"
     "${USER_DIR}"

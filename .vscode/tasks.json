@@ -13,7 +13,7 @@
         "${config:cmake.buildDirectory}",
         "-G",
         "${config:cmake.generator}",
-        "-DCMAKE_TOOLCHAIN_FILE=${workspaceFolder}/project/arm-gnu-none-eabi.cmake"
+        "-DCMAKE_TOOLCHAIN_FILE=${config:cmake.sourceDirectory}/arm-gnu-none-eabi.cmake"
       ],
       "options": {
         "cwd": "${workspaceFolder}"

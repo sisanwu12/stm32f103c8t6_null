@@ -18,7 +18,7 @@
       "searchDir": [],
       "interface": "swd",
       "runToEntryPoint": "main",
-      "svdFile": "${workspaceFolder}/project/STM32F103xx.svd",
+      "svdFile": "${config:cmake.sourceDirectory}/STM32F103xx.svd",
       "showDevDebugOutput": "none"
     }
   ]
