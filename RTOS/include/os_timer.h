@@ -8,6 +8,9 @@
  * @copyright Copyright (c) 2026
  *
  * @note 本文件声明可选的软件定时器服务接口。
+ *       当前对象字段为了静态分配与过渡兼容而保持可见，
+ *       但应用代码不应直接读写内部字段；
+ *       字段布局不构成稳定 public contract，未来版本可能调整。
  */
 
 #ifndef __OS_TIMER_H__

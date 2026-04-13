@@ -8,6 +8,9 @@
  * @copyright Copyright (c) 2026
  *
  * @note 本文件声明任务控制、调度、延时与状态切换相关接口。
+ *       当前 task 相关对象为了静态分配与过渡兼容而保持字段可见，
+ *       但应用代码不应直接读写其内部字段；
+ *       字段布局不构成稳定 public contract，未来版本可能调整。
  */
 
 #ifndef __OS_TASK_H__
@@ -79,6 +82,30 @@ typedef struct task_init_config {
     uint8_t      time_slice; // 时间片长度，传 0 使用默认值
 } task_init_config_t; // 任务初始化配置
 
+typedef tcb_t              os_task_t;        // public semantic alias，不表示 layout 已稳定
+typedef task_init_config_t os_task_config_t; // public semantic alias，不表示 layout 已稳定
+typedef task_state_t       os_task_state_t;  // public semantic alias，底层枚举值暂保持兼容
+typedef task_entry_t       os_task_entry_t;  // public semantic alias，稳定任务入口语义名字
+
+os_status_t os_task_create(os_task_t *task, const os_task_config_t *config);
+os_status_t os_task_delete(os_task_t *task);
+os_status_t os_task_yield(void);
+os_status_t os_task_delay(os_tick_t delay_ticks);
+os_status_t os_task_delay_until(os_tick_t *previous_wake_tick, os_tick_t period_ticks);
+os_task_t *os_task_current_get(void);
+os_status_t os_task_priority_get(const os_task_t *task, uint8_t *priority);
+os_status_t os_task_base_priority_get(const os_task_t *task, uint8_t *priority);
+os_status_t os_task_base_priority_set(os_task_t *task, uint8_t priority);
+os_status_t os_task_state_get(const os_task_t *task, os_task_state_t *state);
+os_status_t os_task_name_get(const os_task_t *task, const char **name);
+os_status_t os_task_stack_high_water_mark_get(const os_task_t *task, uint32_t *unused_words);
+
+/*
+ * Compatibility API:
+ * 旧名字保留一轮过渡兼容，新代码应优先使用 os_task_*。
+ * 其中 os_tick_get() 仍保留在 os_task.h 中，
+ * 避免直接 include os_task.h 的旧代码在过渡期丢失原型声明。
+ */
 os_status_t task_create(tcb_t *task, const task_init_config_t *config);
 os_status_t task_delete(tcb_t *task);
 os_status_t task_yield(void);

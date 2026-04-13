@@ -1751,6 +1751,154 @@ os_tick_t os_tick_get(void)
 }
 
 /**
+ * @brief 以稳定 public 语义名字创建一个任务。
+ *
+ * @param task 调用方提供的静态任务对象。
+ * @param config 任务初始化配置。
+ *
+ * @return os_status_t 创建结果与 task_create() 保持一致。
+ */
+os_status_t os_task_create(os_task_t *task, const os_task_config_t *config)
+{
+    return task_create(task, config);
+}
+
+/**
+ * @brief 以稳定 public 语义名字删除一个任务。
+ *
+ * @param task 待删除的任务对象。
+ *
+ * @return os_status_t 删除结果与 task_delete() 保持一致。
+ */
+os_status_t os_task_delete(os_task_t *task)
+{
+    return task_delete(task);
+}
+
+/**
+ * @brief 以稳定 public 语义名字主动让出 CPU。
+ *
+ * @return os_status_t 让出结果与 task_yield() 保持一致。
+ */
+os_status_t os_task_yield(void)
+{
+    return task_yield();
+}
+
+/**
+ * @brief 以稳定 public 语义名字让当前任务延时。
+ *
+ * @param delay_ticks 相对延时 tick 数。
+ *
+ * @return os_status_t 延时结果与 task_delay() 保持一致。
+ */
+os_status_t os_task_delay(os_tick_t delay_ticks)
+{
+    return task_delay(delay_ticks);
+}
+
+/**
+ * @brief 以稳定 public 语义名字执行周期性 delay-until。
+ *
+ * @param previous_wake_tick 上一次唤醒基准 tick。
+ * @param period_ticks 周期长度。
+ *
+ * @return os_status_t 结果与 task_delay_until() 保持一致。
+ */
+os_status_t os_task_delay_until(os_tick_t *previous_wake_tick, os_tick_t period_ticks)
+{
+    return task_delay_until(previous_wake_tick, period_ticks);
+}
+
+/**
+ * @brief 以稳定 public 语义名字获取当前任务对象。
+ *
+ * @return os_task_t* 当前任务对象；若尚未切入任务则返回 NULL。
+ */
+os_task_t *os_task_current_get(void)
+{
+    return task_get_current();
+}
+
+/**
+ * @brief 以稳定 public 语义名字获取任务当前生效优先级。
+ *
+ * @param task 目标任务对象。
+ * @param priority 输出当前生效优先级。
+ *
+ * @return os_status_t 查询结果与 task_priority_get() 保持一致。
+ */
+os_status_t os_task_priority_get(const os_task_t *task, uint8_t *priority)
+{
+    return task_priority_get(task, priority);
+}
+
+/**
+ * @brief 以稳定 public 语义名字获取任务当前 base priority。
+ *
+ * @param task 目标任务对象。
+ * @param priority 输出当前 base priority。
+ *
+ * @return os_status_t 查询结果与 task_base_priority_get() 保持一致。
+ */
+os_status_t os_task_base_priority_get(const os_task_t *task, uint8_t *priority)
+{
+    return task_base_priority_get(task, priority);
+}
+
+/**
+ * @brief 以稳定 public 语义名字修改任务当前 base priority。
+ *
+ * @param task 目标任务对象。
+ * @param priority 新的 base priority。
+ *
+ * @return os_status_t 修改结果与 task_base_priority_set() 保持一致。
+ */
+os_status_t os_task_base_priority_set(os_task_t *task, uint8_t priority)
+{
+    return task_base_priority_set(task, priority);
+}
+
+/**
+ * @brief 以稳定 public 语义名字获取任务状态。
+ *
+ * @param task 目标任务对象。
+ * @param state 输出任务状态。
+ *
+ * @return os_status_t 查询结果与 task_state_get() 保持一致。
+ */
+os_status_t os_task_state_get(const os_task_t *task, os_task_state_t *state)
+{
+    return task_state_get(task, state);
+}
+
+/**
+ * @brief 以稳定 public 语义名字获取任务名称。
+ *
+ * @param task 目标任务对象。
+ * @param name 输出名称指针。
+ *
+ * @return os_status_t 查询结果与 task_name_get() 保持一致。
+ */
+os_status_t os_task_name_get(const os_task_t *task, const char **name)
+{
+    return task_name_get(task, name);
+}
+
+/**
+ * @brief 以稳定 public 语义名字查询任务栈剩余水位。
+ *
+ * @param task 目标任务对象。
+ * @param unused_words 输出未使用栈空间，单位为 words。
+ *
+ * @return os_status_t 查询结果与 task_stack_high_water_mark_get() 保持一致。
+ */
+os_status_t os_task_stack_high_water_mark_get(const os_task_t *task, uint32_t *unused_words)
+{
+    return task_stack_high_water_mark_get(task, unused_words);
+}
+
+/**
  * @brief 获取任务当前生效优先级。
  *
  * @param task 目标任务对象。

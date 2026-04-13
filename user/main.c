@@ -264,9 +264,9 @@ void os_port_app_systick_hook(void)
 #if (RTOS_REGRESSION_CASE == 1U)
 static volatile uint32_t g_case1_counter_a = 0U;
 static volatile uint32_t g_case1_counter_b = 0U;
-static tcb_t g_case1_task_a;
-static tcb_t g_case1_task_b;
-static tcb_t g_case1_checker;
+static os_task_t g_case1_task_a;
+static os_task_t g_case1_task_b;
+static os_task_t g_case1_checker;
 static uint32_t g_case1_stack_a[64];
 static uint32_t g_case1_stack_b[64];
 static uint32_t g_case1_checker_stack[64];
@@ -292,15 +292,15 @@ static void case1_worker_b(void *param)
 static void case1_checker(void *param)
 {
     const char *name = NULL;      // 读回 task_a 的名称指针
-    task_state_t state = TASK_DELETED; // 读回 task_a 的状态快照
+    os_task_state_t state = TASK_DELETED; // 读回 task_a 的状态快照
     uint8_t priority = 0U;        // 读回 task_a 的当前生效优先级
 
     (void)param;
 
-    regression_expect_ok(task_delay(80U));
-    regression_expect_ok(task_name_get(&g_case1_task_a, &name));
-    regression_expect_ok(task_state_get(&g_case1_task_a, &state));
-    regression_expect_ok(task_priority_get(&g_case1_task_a, &priority));
+    regression_expect_ok(os_task_delay(80U));
+    regression_expect_ok(os_task_name_get(&g_case1_task_a, &name));
+    regression_expect_ok(os_task_state_get(&g_case1_task_a, &state));
+    regression_expect_ok(os_task_priority_get(&g_case1_task_a, &priority));
 
     if ((name == NULL) || (strcmp(name, "rr_a") != 0))
     {
@@ -328,7 +328,7 @@ static void case1_checker(void *param)
 
 static void regression_case_setup(void)
 {
-    task_init_config_t cfg = {0}; // 复用的任务创建配置对象
+    os_task_config_t cfg = {0}; // 复用的任务创建配置对象
 
     cfg.entry = case1_worker_a;
     cfg.param = NULL;
@@ -337,27 +337,27 @@ static void regression_case_setup(void)
     cfg.name = "rr_a";
     cfg.priority = 5U;
     cfg.time_slice = 1U;
-    regression_expect_ok(task_create(&g_case1_task_a, &cfg));
+    regression_expect_ok(os_task_create(&g_case1_task_a, &cfg));
 
     cfg.entry = case1_worker_b;
     cfg.stack_base = g_case1_stack_b;
     cfg.name = "rr_b";
-    regression_expect_ok(task_create(&g_case1_task_b, &cfg));
+    regression_expect_ok(os_task_create(&g_case1_task_b, &cfg));
 
     cfg.entry = case1_checker;
     cfg.stack_base = g_case1_checker_stack;
     cfg.name = "rr_chk";
     cfg.priority = 4U;
     cfg.time_slice = 1U;
-    regression_expect_ok(task_create(&g_case1_checker, &cfg));
+    regression_expect_ok(os_task_create(&g_case1_checker, &cfg));
 }
 #elif (RTOS_REGRESSION_CASE == 2U)
 /* ==================== Case 2: 高优先级唤醒抢占 ==================== */
 static volatile uint32_t g_case2_low_counter = 0U;
 static volatile uint8_t  g_case2_high_ran = 0U;
-static tcb_t g_case2_low_task;
-static tcb_t g_case2_high_task;
-static tcb_t g_case2_checker;
+static os_task_t g_case2_low_task;
+static os_task_t g_case2_high_task;
+static os_task_t g_case2_checker;
 static uint32_t g_case2_low_stack[64];
 static uint32_t g_case2_high_stack[64];
 static uint32_t g_case2_checker_stack[64];
@@ -374,7 +374,7 @@ static void case2_low_task(void *param)
 static void case2_high_task(void *param)
 {
     (void)param;
-    regression_expect_ok(task_delay(20U));
+    regression_expect_ok(os_task_delay(20U));
     g_case2_high_ran = 1U;
     for (;;)
     {
@@ -384,7 +384,7 @@ static void case2_high_task(void *param)
 static void case2_checker(void *param)
 {
     (void)param;
-    regression_expect_ok(task_delay(40U));
+    regression_expect_ok(os_task_delay(40U));
 
     if ((g_case2_low_counter == 0U) || (g_case2_high_ran == 0U))
     {
@@ -396,33 +396,33 @@ static void case2_checker(void *param)
 
 static void regression_case_setup(void)
 {
-    task_init_config_t cfg = {0}; // 复用的任务创建配置对象
+    os_task_config_t cfg = {0}; // 复用的任务创建配置对象
 
     cfg.entry = case2_low_task;
     cfg.stack_base = g_case2_low_stack;
     cfg.stack_size = 64U;
     cfg.name = "preempt_low";
     cfg.priority = 6U;
-    regression_expect_ok(task_create(&g_case2_low_task, &cfg));
+    regression_expect_ok(os_task_create(&g_case2_low_task, &cfg));
 
     cfg.entry = case2_high_task;
     cfg.stack_base = g_case2_high_stack;
     cfg.name = "preempt_high";
     cfg.priority = 3U;
-    regression_expect_ok(task_create(&g_case2_high_task, &cfg));
+    regression_expect_ok(os_task_create(&g_case2_high_task, &cfg));
 
     cfg.entry = case2_checker;
     cfg.stack_base = g_case2_checker_stack;
     cfg.name = "preempt_chk";
     cfg.priority = 2U;
-    regression_expect_ok(task_create(&g_case2_checker, &cfg));
+    regression_expect_ok(os_task_create(&g_case2_checker, &cfg));
 }
 #elif (RTOS_REGRESSION_CASE == 3U)
 /* ==================== Case 3: task_delay timeout 恢复 ==================== */
 static volatile uint8_t  g_case3_done = 0U;
 static volatile os_tick_t g_case3_elapsed = 0U;
-static tcb_t g_case3_worker;
-static tcb_t g_case3_checker;
+static os_task_t g_case3_worker;
+static os_task_t g_case3_checker;
 static uint32_t g_case3_worker_stack[64];
 static uint32_t g_case3_checker_stack[64];
 
@@ -432,9 +432,9 @@ static void case3_worker(void *param)
 
     (void)param;
 
-    start_tick = os_tick_get();
-    regression_expect_ok(task_delay(15U));
-    g_case3_elapsed = (os_tick_t)(os_tick_get() - start_tick);
+    start_tick = os_kernel_tick_get();
+    regression_expect_ok(os_task_delay(15U));
+    g_case3_elapsed = (os_tick_t)(os_kernel_tick_get() - start_tick);
     g_case3_done = 1U;
 
     for (;;)
@@ -445,7 +445,7 @@ static void case3_worker(void *param)
 static void case3_checker(void *param)
 {
     (void)param;
-    regression_expect_ok(task_delay(30U));
+    regression_expect_ok(os_task_delay(30U));
 
     if ((g_case3_done == 0U) || (g_case3_elapsed < 15U))
     {
@@ -457,27 +457,27 @@ static void case3_checker(void *param)
 
 static void regression_case_setup(void)
 {
-    task_init_config_t cfg = {0}; // 复用的任务创建配置对象
+    os_task_config_t cfg = {0}; // 复用的任务创建配置对象
 
     cfg.entry = case3_worker;
     cfg.stack_base = g_case3_worker_stack;
     cfg.stack_size = 64U;
     cfg.name = "delay_worker";
     cfg.priority = 5U;
-    regression_expect_ok(task_create(&g_case3_worker, &cfg));
+    regression_expect_ok(os_task_create(&g_case3_worker, &cfg));
 
     cfg.entry = case3_checker;
     cfg.stack_base = g_case3_checker_stack;
     cfg.name = "delay_chk";
     cfg.priority = 4U;
-    regression_expect_ok(task_create(&g_case3_checker, &cfg));
+    regression_expect_ok(os_task_create(&g_case3_checker, &cfg));
 }
 #elif (RTOS_REGRESSION_CASE == 4U)
 /* ==================== Case 4: task_delay_until 周期稳定性 ==================== */
 static volatile uint8_t  g_case4_done = 0U;
 static volatile os_tick_t g_case4_timestamps[4] = {0U};
-static tcb_t g_case4_worker;
-static tcb_t g_case4_checker;
+static os_task_t g_case4_worker;
+static os_task_t g_case4_checker;
 static uint32_t g_case4_worker_stack[64];
 static uint32_t g_case4_checker_stack[64];
 
@@ -488,11 +488,11 @@ static void case4_worker(void *param)
 
     (void)param;
 
-    previous = os_tick_get();
+    previous = os_kernel_tick_get();
     for (index = 0U; index < 4U; index++)
     {
-        regression_expect_ok(task_delay_until(&previous, 10U));
-        g_case4_timestamps[index] = os_tick_get();
+        regression_expect_ok(os_task_delay_until(&previous, 10U));
+        g_case4_timestamps[index] = os_kernel_tick_get();
     }
 
     g_case4_done = 1U;
@@ -507,7 +507,7 @@ static void case4_checker(void *param)
     os_tick_t delta = 0U; // 相邻两次唤醒之间的 tick 间隔
 
     (void)param;
-    regression_expect_ok(task_delay(60U));
+    regression_expect_ok(os_task_delay(60U));
 
     if (g_case4_done == 0U)
     {
@@ -529,20 +529,20 @@ static void case4_checker(void *param)
 
 static void regression_case_setup(void)
 {
-    task_init_config_t cfg = {0}; // 复用的任务创建配置对象
+    os_task_config_t cfg = {0}; // 复用的任务创建配置对象
 
     cfg.entry = case4_worker;
     cfg.stack_base = g_case4_worker_stack;
     cfg.stack_size = 64U;
     cfg.name = "delay_until";
     cfg.priority = 5U;
-    regression_expect_ok(task_create(&g_case4_worker, &cfg));
+    regression_expect_ok(os_task_create(&g_case4_worker, &cfg));
 
     cfg.entry = case4_checker;
     cfg.stack_base = g_case4_checker_stack;
     cfg.name = "delay_until_chk";
     cfg.priority = 4U;
-    regression_expect_ok(task_create(&g_case4_checker, &cfg));
+    regression_expect_ok(os_task_create(&g_case4_checker, &cfg));
 }
 #elif (RTOS_REGRESSION_CASE == 5U)
 /* ==================== Case 5: os_sem_give_from_isr ==================== */
@@ -550,8 +550,8 @@ volatile uint32_t g_case5_tick_count = 0U;
 volatile uint8_t  g_case5_isr_give_done = 0U;
 static volatile uint8_t  g_case5_took = 0U;
 os_sem_t g_case5_sem;
-static tcb_t g_case5_waiter;
-static tcb_t g_case5_checker;
+static os_task_t g_case5_waiter;
+static os_task_t g_case5_checker;
 static uint32_t g_case5_waiter_stack[64];
 static uint32_t g_case5_checker_stack[64];
 
@@ -568,7 +568,7 @@ static void case5_waiter(void *param)
 static void case5_checker(void *param)
 {
     (void)param;
-    regression_expect_ok(task_delay(30U));
+    regression_expect_ok(os_task_delay(30U));
 
     if ((g_case5_took == 0U) || (g_case5_isr_give_done == 0U))
     {
@@ -580,7 +580,7 @@ static void case5_checker(void *param)
 
 static void regression_case_setup(void)
 {
-    task_init_config_t cfg = {0}; // 复用的任务创建配置对象
+    os_task_config_t cfg = {0}; // 复用的任务创建配置对象
 
     regression_expect_ok(os_sem_init(&g_case5_sem, 0U));
 
@@ -589,13 +589,13 @@ static void regression_case_setup(void)
     cfg.stack_size = 64U;
     cfg.name = "sem_isr_wait";
     cfg.priority = 5U;
-    regression_expect_ok(task_create(&g_case5_waiter, &cfg));
+    regression_expect_ok(os_task_create(&g_case5_waiter, &cfg));
 
     cfg.entry = case5_checker;
     cfg.stack_base = g_case5_checker_stack;
     cfg.name = "sem_isr_chk";
     cfg.priority = 4U;
-    regression_expect_ok(task_create(&g_case5_checker, &cfg));
+    regression_expect_ok(os_task_create(&g_case5_checker, &cfg));
 }
 #elif (RTOS_REGRESSION_CASE == 6U)
 /* ==================== Case 6: queue timeout / retry ==================== */
@@ -604,9 +604,9 @@ static uint32_t   g_case6_queue_buffer[4] = {0U};
 static volatile uint8_t  g_case6_first_timeout = 0U;
 static volatile uint8_t  g_case6_second_success = 0U;
 static volatile uint32_t g_case6_value = 0U;
-static tcb_t g_case6_receiver;
-static tcb_t g_case6_sender;
-static tcb_t g_case6_checker;
+static os_task_t g_case6_receiver;
+static os_task_t g_case6_sender;
+static os_task_t g_case6_checker;
 static uint32_t g_case6_receiver_stack[64];
 static uint32_t g_case6_sender_stack[64];
 static uint32_t g_case6_checker_stack[64];
@@ -641,7 +641,7 @@ static void case6_sender(void *param)
     uint32_t value = 0x12345678UL; // 第二次接收应当拿到的测试消息
 
     (void)param;
-    regression_expect_ok(task_delay(15U));
+    regression_expect_ok(os_task_delay(15U));
     regression_expect_ok(os_queue_send(&g_case6_queue, &value, OS_WAIT_FOREVER));
 
     for (;;)
@@ -652,7 +652,7 @@ static void case6_sender(void *param)
 static void case6_checker(void *param)
 {
     (void)param;
-    regression_expect_ok(task_delay(60U));
+    regression_expect_ok(os_task_delay(60U));
 
     if ((g_case6_first_timeout == 0U) || (g_case6_second_success == 0U) || (g_case6_value != 0x12345678UL))
     {
@@ -664,7 +664,7 @@ static void case6_checker(void *param)
 
 static void regression_case_setup(void)
 {
-    task_init_config_t cfg = {0}; // 复用的任务创建配置对象
+    os_task_config_t cfg = {0}; // 复用的任务创建配置对象
 
     regression_expect_ok(os_queue_init(&g_case6_queue, g_case6_queue_buffer, sizeof(uint32_t), 4U));
 
@@ -673,28 +673,28 @@ static void regression_case_setup(void)
     cfg.stack_size = 64U;
     cfg.name = "queue_rx";
     cfg.priority = 5U;
-    regression_expect_ok(task_create(&g_case6_receiver, &cfg));
+    regression_expect_ok(os_task_create(&g_case6_receiver, &cfg));
 
     cfg.entry = case6_sender;
     cfg.stack_base = g_case6_sender_stack;
     cfg.name = "queue_tx";
     cfg.priority = 6U;
-    regression_expect_ok(task_create(&g_case6_sender, &cfg));
+    regression_expect_ok(os_task_create(&g_case6_sender, &cfg));
 
     cfg.entry = case6_checker;
     cfg.stack_base = g_case6_checker_stack;
     cfg.name = "queue_chk";
     cfg.priority = 4U;
-    regression_expect_ok(task_create(&g_case6_checker, &cfg));
+    regression_expect_ok(os_task_create(&g_case6_checker, &cfg));
 }
 #elif (RTOS_REGRESSION_CASE == 7U)
 /* ==================== Case 7: mutex priority inheritance ==================== */
 static os_mutex_t g_case7_mutex;
 static volatile uint8_t g_case7_allow_unlock = 0U;
 static volatile uint8_t g_case7_high_got_lock = 0U;
-static tcb_t g_case7_low_task;
-static tcb_t g_case7_high_task;
-static tcb_t g_case7_checker;
+static os_task_t g_case7_low_task;
+static os_task_t g_case7_high_task;
+static os_task_t g_case7_checker;
 static uint32_t g_case7_low_stack[64];
 static uint32_t g_case7_high_stack[64];
 static uint32_t g_case7_checker_stack[64];
@@ -717,7 +717,7 @@ static void case7_low_owner(void *param)
 static void case7_high_waiter(void *param)
 {
     (void)param;
-    regression_expect_ok(task_delay(5U));
+    regression_expect_ok(os_task_delay(5U));
     regression_expect_ok(os_mutex_lock(&g_case7_mutex, OS_WAIT_FOREVER));
     g_case7_high_got_lock = 1U;
     regression_expect_ok(os_mutex_unlock(&g_case7_mutex));
@@ -732,15 +732,15 @@ static void case7_checker(void *param)
     uint8_t effective = 0U; // low owner 在 waiter 存在时的 effective priority
 
     (void)param;
-    regression_expect_ok(task_delay(15U));
-    regression_expect_ok(task_priority_get(&g_case7_low_task, &effective));
+    regression_expect_ok(os_task_delay(15U));
+    regression_expect_ok(os_task_priority_get(&g_case7_low_task, &effective));
     if (effective != 3U)
     {
         regression_fail();
     }
 
     g_case7_allow_unlock = 1U;
-    regression_expect_ok(task_delay(10U));
+    regression_expect_ok(os_task_delay(10U));
 
     if (g_case7_high_got_lock == 0U)
     {
@@ -752,7 +752,7 @@ static void case7_checker(void *param)
 
 static void regression_case_setup(void)
 {
-    task_init_config_t cfg = {0}; // 复用的任务创建配置对象
+    os_task_config_t cfg = {0}; // 复用的任务创建配置对象
 
     regression_expect_ok(os_mutex_init(&g_case7_mutex));
 
@@ -761,28 +761,28 @@ static void regression_case_setup(void)
     cfg.stack_size = 64U;
     cfg.name = "mtx_low";
     cfg.priority = 6U;
-    regression_expect_ok(task_create(&g_case7_low_task, &cfg));
+    regression_expect_ok(os_task_create(&g_case7_low_task, &cfg));
 
     cfg.entry = case7_high_waiter;
     cfg.stack_base = g_case7_high_stack;
     cfg.name = "mtx_high";
     cfg.priority = 3U;
-    regression_expect_ok(task_create(&g_case7_high_task, &cfg));
+    regression_expect_ok(os_task_create(&g_case7_high_task, &cfg));
 
     cfg.entry = case7_checker;
     cfg.stack_base = g_case7_checker_stack;
     cfg.name = "mtx_chk";
     cfg.priority = 2U;
-    regression_expect_ok(task_create(&g_case7_checker, &cfg));
+    regression_expect_ok(os_task_create(&g_case7_checker, &cfg));
 }
 #elif (RTOS_REGRESSION_CASE == 8U)
 /* ==================== Case 8: task_base_priority_set 立即抢占 ==================== */
 static volatile uint8_t g_case8_sequence = 0U;
 static volatile uint8_t g_case8_observed = 0U;
 static volatile uint8_t g_case8_preempted = 0U;
-static tcb_t g_case8_setter_task;
-static tcb_t g_case8_target_task;
-static tcb_t g_case8_checker;
+static os_task_t g_case8_setter_task;
+static os_task_t g_case8_target_task;
+static os_task_t g_case8_checker;
 static uint32_t g_case8_setter_stack[64];
 static uint32_t g_case8_target_stack[64];
 static uint32_t g_case8_checker_stack[64];
@@ -791,7 +791,7 @@ static void case8_setter(void *param)
 {
     (void)param;
     g_case8_sequence = 1U;
-    regression_expect_ok(task_base_priority_set(&g_case8_target_task, 4U));
+    regression_expect_ok(os_task_base_priority_set(&g_case8_target_task, 4U));
     g_case8_sequence = 2U;
 
     for (;;)
@@ -828,8 +828,8 @@ static void case8_checker(void *param)
     uint8_t base_priority = 0U; // 读回 target 任务的新 base priority
 
     (void)param;
-    regression_expect_ok(task_delay(20U));
-    regression_expect_ok(task_base_priority_get(&g_case8_target_task, &base_priority));
+    regression_expect_ok(os_task_delay(20U));
+    regression_expect_ok(os_task_base_priority_get(&g_case8_target_task, &base_priority));
 
     if ((g_case8_observed == 0U) || (g_case8_preempted == 0U) || (base_priority != 4U))
     {
@@ -841,38 +841,38 @@ static void case8_checker(void *param)
 
 static void regression_case_setup(void)
 {
-    task_init_config_t cfg = {0}; // 复用的任务创建配置对象
+    os_task_config_t cfg = {0}; // 复用的任务创建配置对象
 
     cfg.entry = case8_setter;
     cfg.stack_base = g_case8_setter_stack;
     cfg.stack_size = 64U;
     cfg.name = "prio_setter";
     cfg.priority = 5U;
-    regression_expect_ok(task_create(&g_case8_setter_task, &cfg));
+    regression_expect_ok(os_task_create(&g_case8_setter_task, &cfg));
 
     cfg.entry = case8_target;
     cfg.stack_base = g_case8_target_stack;
     cfg.name = "prio_target";
     cfg.priority = 6U;
-    regression_expect_ok(task_create(&g_case8_target_task, &cfg));
+    regression_expect_ok(os_task_create(&g_case8_target_task, &cfg));
 
     cfg.entry = case8_checker;
     cfg.stack_base = g_case8_checker_stack;
     cfg.name = "prio_chk";
     cfg.priority = 2U;
-    regression_expect_ok(task_create(&g_case8_checker, &cfg));
+    regression_expect_ok(os_task_create(&g_case8_checker, &cfg));
 }
 #elif (RTOS_REGRESSION_CASE == 9U)
 /* ==================== Case 9: stack sentinel panic ==================== */
-static tcb_t g_case9_task;
+static os_task_t g_case9_task;
 static uint32_t g_case9_stack[64];
 
 static void case9_corrupt_sentinel(void *param)
 {
-    tcb_t *current = NULL; // 当前正在运行的任务对象
+    os_task_t *current = NULL; // 当前正在运行的任务对象
 
     (void)param;
-    current = task_get_current();
+    current = os_task_current_get();
     if (current == NULL)
     {
         regression_fail();
@@ -887,7 +887,7 @@ static void case9_corrupt_sentinel(void *param)
 
 static void regression_case_setup(void)
 {
-    task_init_config_t cfg = { // 破坏 sentinel 的测试任务初始化配置
+    os_task_config_t cfg = { // 破坏 sentinel 的测试任务初始化配置
         .entry = case9_corrupt_sentinel,
         .param = NULL,
         .stack_base = g_case9_stack,
@@ -897,12 +897,12 @@ static void regression_case_setup(void)
         .time_slice = 0U,
     };
 
-    regression_expect_ok(task_create(&g_case9_task, &cfg));
+    regression_expect_ok(os_task_create(&g_case9_task, &cfg));
 }
 #elif (RTOS_REGRESSION_CASE == 10U)
 /* ==================== Case 10: invalid PSP panic ==================== */
-static tcb_t g_case10_controller;
-static tcb_t g_case10_victim;
+static os_task_t g_case10_controller;
+static os_task_t g_case10_victim;
 static uint32_t g_case10_controller_stack[64];
 static uint32_t g_case10_victim_stack[64];
 
@@ -919,26 +919,26 @@ static void case10_controller(void *param)
     (void)param;
     /* 把 victim 的 PSP 改到合法栈区间外，等待真正发生 PendSV 时触发端口层检查。 */
     g_case10_victim.sp = g_case10_victim.stack_base - 1;
-    regression_expect_ok(task_delay(1U));
+    regression_expect_ok(os_task_delay(1U));
     regression_fail();
 }
 
 static void regression_case_setup(void)
 {
-    task_init_config_t cfg = {0}; // 复用的任务创建配置对象
+    os_task_config_t cfg = {0}; // 复用的任务创建配置对象
 
     cfg.entry = case10_controller;
     cfg.stack_base = g_case10_controller_stack;
     cfg.stack_size = 64U;
     cfg.name = "sp_ctl";
     cfg.priority = 4U;
-    regression_expect_ok(task_create(&g_case10_controller, &cfg));
+    regression_expect_ok(os_task_create(&g_case10_controller, &cfg));
 
     cfg.entry = case10_victim;
     cfg.stack_base = g_case10_victim_stack;
     cfg.name = "sp_victim";
     cfg.priority = 5U;
-    regression_expect_ok(task_create(&g_case10_victim, &cfg));
+    regression_expect_ok(os_task_create(&g_case10_victim, &cfg));
 }
 #elif (RTOS_REGRESSION_CASE == 11U)
 /* ==================== Case 11: HardFault 统一 panic ==================== */
@@ -963,7 +963,7 @@ static void regression_case_setup(void)
 /* ==================== Case 13: one-shot timer callback ==================== */
 static os_timer_t g_case13_timer;
 static volatile uint32_t g_case13_callback_count = 0U;
-static tcb_t g_case13_checker;
+static os_task_t g_case13_checker;
 static uint32_t g_case13_checker_stack[64];
 
 static void case13_timer_callback(void *arg)
@@ -975,7 +975,7 @@ static void case13_timer_callback(void *arg)
 static void case13_checker(void *param)
 {
     (void)param;
-    regression_expect_ok(task_delay(30U));
+    regression_expect_ok(os_task_delay(30U));
 
     if (g_case13_callback_count != 1U)
     {
@@ -993,7 +993,7 @@ static void regression_case_setup(void)
         .callback = case13_timer_callback,
         .arg = NULL,
     };
-    task_init_config_t cfg = { // checker 任务的静态初始化配置
+    os_task_config_t cfg = { // checker 任务的静态初始化配置
         .entry = case13_checker,
         .param = NULL,
         .stack_base = g_case13_checker_stack,
@@ -1005,13 +1005,13 @@ static void regression_case_setup(void)
 
     regression_expect_ok(os_timer_init(&g_case13_timer, &timer_cfg));
     regression_expect_ok(os_timer_start(&g_case13_timer, 10U));
-    regression_expect_ok(task_create(&g_case13_checker, &cfg));
+    regression_expect_ok(os_task_create(&g_case13_checker, &cfg));
 }
 #elif (RTOS_REGRESSION_CASE == 14U)
 /* ==================== Case 14: periodic timer callback ==================== */
 static os_timer_t g_case14_timer;
 static volatile uint32_t g_case14_callback_count = 0U;
-static tcb_t g_case14_checker;
+static os_task_t g_case14_checker;
 static uint32_t g_case14_checker_stack[64];
 
 static void case14_timer_callback(void *arg)
@@ -1023,7 +1023,7 @@ static void case14_timer_callback(void *arg)
 static void case14_checker(void *param)
 {
     (void)param;
-    regression_expect_ok(task_delay(30U));
+    regression_expect_ok(os_task_delay(30U));
     regression_expect_ok(os_timer_stop(&g_case14_timer));
 
     if (g_case14_callback_count < 3U)
@@ -1042,7 +1042,7 @@ static void regression_case_setup(void)
         .callback = case14_timer_callback,
         .arg = NULL,
     };
-    task_init_config_t cfg = { // checker 任务的静态初始化配置
+    os_task_config_t cfg = { // checker 任务的静态初始化配置
         .entry = case14_checker,
         .param = NULL,
         .stack_base = g_case14_checker_stack,
@@ -1054,14 +1054,14 @@ static void regression_case_setup(void)
 
     regression_expect_ok(os_timer_init(&g_case14_timer, &timer_cfg));
     regression_expect_ok(os_timer_start(&g_case14_timer, 5U));
-    regression_expect_ok(task_create(&g_case14_checker, &cfg));
+    regression_expect_ok(os_task_create(&g_case14_checker, &cfg));
 }
 #elif (RTOS_REGRESSION_CASE == 15U)
 /* ==================== Case 15: timer stop / restart ==================== */
 static os_timer_t g_case15_timer;
 static volatile uint32_t g_case15_callback_count = 0U;
-static tcb_t g_case15_stopper;
-static tcb_t g_case15_checker;
+static os_task_t g_case15_stopper;
+static os_task_t g_case15_checker;
 static uint32_t g_case15_stopper_stack[64];
 static uint32_t g_case15_checker_stack[64];
 
@@ -1074,7 +1074,7 @@ static void case15_timer_callback(void *arg)
 static void case15_stopper(void *param)
 {
     (void)param;
-    regression_expect_ok(task_delay(10U));
+    regression_expect_ok(os_task_delay(10U));
     regression_expect_ok(os_timer_stop(&g_case15_timer));
     regression_expect_ok(os_timer_start(&g_case15_timer, 5U));
     for (;;)
@@ -1085,7 +1085,7 @@ static void case15_stopper(void *param)
 static void case15_checker(void *param)
 {
     (void)param;
-    regression_expect_ok(task_delay(25U));
+    regression_expect_ok(os_task_delay(25U));
 
     if (g_case15_callback_count != 1U)
     {
@@ -1103,7 +1103,7 @@ static void regression_case_setup(void)
         .callback = case15_timer_callback,
         .arg = NULL,
     };
-    task_init_config_t cfg = {0}; // 复用的任务创建配置对象
+    os_task_config_t cfg = {0}; // 复用的任务创建配置对象
 
     regression_expect_ok(os_timer_init(&g_case15_timer, &timer_cfg));
     regression_expect_ok(os_timer_start(&g_case15_timer, 20U));
@@ -1113,13 +1113,13 @@ static void regression_case_setup(void)
     cfg.stack_size = 64U;
     cfg.name = "timer_stopper";
     cfg.priority = 4U;
-    regression_expect_ok(task_create(&g_case15_stopper, &cfg));
+    regression_expect_ok(os_task_create(&g_case15_stopper, &cfg));
 
     cfg.entry = case15_checker;
     cfg.stack_base = g_case15_checker_stack;
     cfg.name = "timer_restart_chk";
     cfg.priority = 3U;
-    regression_expect_ok(task_create(&g_case15_checker, &cfg));
+    regression_expect_ok(os_task_create(&g_case15_checker, &cfg));
 }
 #else
 static void regression_case_setup(void)
@@ -1132,7 +1132,7 @@ int main(void)
 {
     regression_probe_init();
     /* 所有 panic 类 case 都统一通过 panic hook 先输出 reason 编号。 */
-    (void)os_panic_set_hook(regression_panic_hook);
+    (void)os_panic_hook_set(regression_panic_hook);
     regression_emit_case_start(RTOS_REGRESSION_CASE);
     regression_case_setup();
 

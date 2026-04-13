@@ -12,6 +12,7 @@
 
 #include <string.h>
 #include "internal/os_task_internal.h"
+#include "os_kernel.h"
 #include "os_port.h"
 #include "os_queue.h"
 
@@ -403,7 +404,7 @@ os_status_t os_queue_send(os_queue_t *queue, const void *msg, os_tick_t timeout_
     wait_forever = (uint8_t)(timeout_ticks == OS_WAIT_FOREVER);
     if (wait_forever == 0U)
     {
-        deadline_tick = (os_tick_t)(os_tick_get() + timeout_ticks);
+        deadline_tick = (os_tick_t)(os_kernel_tick_get() + timeout_ticks);
     }
 
     for (;;)
@@ -444,7 +445,7 @@ os_status_t os_queue_send(os_queue_t *queue, const void *msg, os_tick_t timeout_
          * 这样被唤醒后再次进入循环时，不会重新拿到完整 timeout。 */
         if (wait_forever == 0U)
         {
-            current_tick = os_tick_get();
+            current_tick = os_kernel_tick_get();
 
             /* deadline 已到期时，这次重试不能再继续阻塞，按超时返回。 */
             if (os_queue_tick_is_due(current_tick, deadline_tick) != 0U)
@@ -550,7 +551,7 @@ os_status_t os_queue_recv(os_queue_t *queue, void *msg, os_tick_t timeout_ticks)
     wait_forever = (uint8_t)(timeout_ticks == OS_WAIT_FOREVER);
     if (wait_forever == 0U)
     {
-        deadline_tick = (os_tick_t)(os_tick_get() + timeout_ticks);
+        deadline_tick = (os_tick_t)(os_kernel_tick_get() + timeout_ticks);
     }
 
     for (;;)
@@ -591,7 +592,7 @@ os_status_t os_queue_recv(os_queue_t *queue, void *msg, os_tick_t timeout_ticks)
          * 避免在多次重试中重复拿到完整 timeout。 */
         if (wait_forever == 0U)
         {
-            current_tick = os_tick_get();
+            current_tick = os_kernel_tick_get();
 
             /* deadline 已到期时，这次重试不能再继续阻塞，按超时返回。 */
             if (os_queue_tick_is_due(current_tick, deadline_tick) != 0U)

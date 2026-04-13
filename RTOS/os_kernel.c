@@ -10,7 +10,7 @@
  * @note 本文件负责把调度器选出的首任务正式交给 port 层切入运行。
  */
 
-#include "os.h"
+#include "os_kernel.h"
 #include "internal/os_task_internal.h"
 #include "os_port.h"
 
@@ -61,4 +61,14 @@ os_status_t os_kernel_start(uint32_t cpu_clock_hz)
 
     /* 若 port 层意外返回，说明首任务启动链路存在异常。 */
     return OS_STATUS_INVALID_STATE;
+}
+
+/**
+ * @brief 获取当前全局 tick 的稳定 public 语义入口。
+ *
+ * @return os_tick_t 当前内核绝对 tick 值。
+ */
+os_tick_t os_kernel_tick_get(void)
+{
+    return os_tick_get();
 }

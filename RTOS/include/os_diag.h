@@ -36,12 +36,18 @@ typedef struct os_panic_info {
 
 typedef void (*os_panic_hook_t)(const os_panic_info_t *info); // panic hook 类型定义
 
-os_panic_hook_t os_panic_set_hook(os_panic_hook_t hook);
+os_panic_hook_t os_panic_hook_set(os_panic_hook_t hook);
 
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((noreturn))
 #endif
 void os_panic(os_panic_reason_t reason, const char *file, uint32_t line);
+
+/*
+ * Compatibility API:
+ * 旧名字保留一轮过渡兼容，新代码应优先使用 os_panic_hook_set()。
+ */
+os_panic_hook_t os_panic_set_hook(os_panic_hook_t hook);
 
 #if (OS_ASSERT_ENABLE != 0U)
     #define OS_ASSERT(expr)                                                         \

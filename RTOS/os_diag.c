@@ -24,7 +24,7 @@ static os_panic_hook_t  g_os_panic_hook = NULL; // 当前注册的 panic hook
  *
  * @return os_panic_hook_t 返回替换前的旧 hook。
  */
-os_panic_hook_t os_panic_set_hook(os_panic_hook_t hook)
+os_panic_hook_t os_panic_hook_set(os_panic_hook_t hook)
 {
     os_panic_hook_t old_hook = NULL;
     uint32_t        primask = 0U;
@@ -34,6 +34,18 @@ os_panic_hook_t os_panic_set_hook(os_panic_hook_t hook)
     g_os_panic_hook = hook;
     os_port_exit_critical(primask);
     return old_hook;
+}
+
+/**
+ * @brief 兼容旧名字的 panic hook 注册接口。
+ *
+ * @param hook 新的 panic hook；传 NULL 表示清空。
+ *
+ * @return os_panic_hook_t 返回替换前的旧 hook。
+ */
+os_panic_hook_t os_panic_set_hook(os_panic_hook_t hook)
+{
+    return os_panic_hook_set(hook);
 }
 
 /**

@@ -12,6 +12,7 @@
 
 #include <string.h>
 #include "os_diag.h"
+#include "os_kernel.h"
 #include "os_port.h"
 #include "os_sem.h"
 #include "os_task.h"
@@ -431,7 +432,7 @@ os_status_t os_timer_start(os_timer_t *timer, os_tick_t timeout_ticks)
     primask = os_port_enter_critical();
     os_timer_remove_locked(timer);
     timer->period_ticks = (timer->mode == OS_TIMER_PERIODIC) ? timeout_ticks : 0U;
-    timer->expiry_tick = (os_tick_t)(os_tick_get() + timeout_ticks);
+    timer->expiry_tick = (os_tick_t)(os_kernel_tick_get() + timeout_ticks);
     os_timer_active_list_insert_ordered_locked(timer);
     os_port_exit_critical(primask);
     return OS_STATUS_OK;
@@ -488,7 +489,7 @@ os_status_t os_timer_system_tick(void)
         return OS_STATUS_NO_CHANGE;
     }
 
-    current_tick = os_tick_get();
+    current_tick = os_kernel_tick_get();
     primask = os_port_enter_critical();
 
     node = g_os_timer_active_list.head;
