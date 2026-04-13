@@ -11,6 +11,7 @@
  */
 
 #include "os.h"
+#include "internal/os_task_internal.h"
 #include "os_port.h"
 
 /**

@@ -11,8 +11,9 @@
  */
 
 #include <string.h>
+#include "os_diag.h"
+#include "internal/os_task_internal.h"
 #include "os_port.h"
-#include "os_task.h"
 #include "os_mutex.h"
 
 #define OS_IDLE_TASK_NAME "idle" // 内核自带 idle 任务名称
@@ -50,6 +51,8 @@ static uint8_t task_normalize_time_slice(uint8_t time_slice);
 static void task_idle_entry(void *param);
 static os_status_t task_create_idle_task(void);
 static os_status_t task_init(tcb_t *task, const task_init_config_t *config, uint8_t allow_idle_priority);
+static void task_fill_stack_pattern(uint32_t *stack_base, uint32_t stack_size);
+static uint8_t task_stack_sentinel_is_intact(const tcb_t *task);
 static uint8_t task_is_in_runnable_queue(const tcb_t *task);
 static uint8_t task_is_in_timed_wait_list(const tcb_t *task);
 static uint8_t task_timeout_is_supported(os_tick_t timeout_ticks);
@@ -68,6 +71,44 @@ static os_status_t task_wake_timed_tasks_locked(void);
 static os_status_t task_handle_time_slice_tick_locked(void);
 static os_status_t task_detach_from_scheduler_locked(tcb_t *task);
 static os_status_t task_mark_deleted_locked(tcb_t *task);
+
+/**
+ * @brief 用固定 pattern 预填整个任务栈。
+ *
+ * @param stack_base 任务栈低地址起点。
+ * @param stack_size 任务栈深度，单位为 uint32_t。
+ */
+static void task_fill_stack_pattern(uint32_t *stack_base, uint32_t stack_size)
+{
+    uint32_t index = 0U;
+
+    if (stack_base == NULL)
+    {
+        return;
+    }
+
+    for (index = 0U; index < stack_size; index++)
+    {
+        stack_base[index] = OS_TASK_STACK_FILL_PATTERN;
+    }
+}
+
+/**
+ * @brief 检查任务栈底哨兵字是否仍保持完整。
+ *
+ * @param task 待检查的任务对象。
+ *
+ * @return uint8_t 非 0 表示哨兵字完整，0 表示已被覆盖。
+ */
+static uint8_t task_stack_sentinel_is_intact(const tcb_t *task)
+{
+    if ((task_is_valid(task) == 0U) || (task->stack_base == NULL) || (task->stack_size == 0U))
+    {
+        return 0U;
+    }
+
+    return (uint8_t)(task->stack_base[0] == OS_TASK_STACK_FILL_PATTERN);
+}
 
 /**
  * @brief 判断任务是否已经处于全局可运行任务集合中。
@@ -732,6 +773,7 @@ static os_status_t task_init(tcb_t *task, const task_init_config_t *config, uint
 
     /* 先归一化时间片配置，再让端口层按 Cortex-M3 规则伪造初始栈帧。 */
     time_slice = task_normalize_time_slice(config->time_slice);
+    task_fill_stack_pattern(config->stack_base, config->stack_size);
     initial_sp = os_port_task_stack_init(config->stack_base, config->stack_size, config->entry, config->param);
     if (initial_sp == NULL)
     {
@@ -1682,6 +1724,14 @@ os_status_t task_system_tick(void)
         return status;
     }
 
+#if (OS_TASK_STACK_CHECK_ENABLE != 0U)
+    if ((g_current_task != NULL) && (task_stack_sentinel_is_intact(g_current_task) == 0U))
+    {
+        os_port_exit_critical(primask);
+        os_panic(OS_PANIC_STACK_SENTINEL, __FILE__, (uint32_t)__LINE__);
+    }
+#endif
+
     /* 无论 timeout 是否已经让更高优先级任务变成 runnable，
      * 当前任务都已经完整消耗了这一个 tick，所以这里仍要继续结算时间片。 */
     status = task_handle_time_slice_tick_locked();
@@ -1698,6 +1748,37 @@ os_status_t task_system_tick(void)
 os_tick_t os_tick_get(void)
 {
     return g_os_tick;
+}
+
+/**
+ * @brief 统计任务栈当前仍保持 fill pattern 的未使用空间。
+ *
+ * @param task 待查询的任务对象。
+ * @param unused_words 输出当前未使用栈空间，单位为 uint32_t words。
+ *
+ * @return os_status_t 查询成功返回 OS_STATUS_OK，否则返回具体错误码。
+ */
+os_status_t task_stack_high_water_mark_get(const tcb_t *task, uint32_t *unused_words)
+{
+    uint32_t count = 0U;
+
+    if ((task == NULL) || (unused_words == NULL))
+    {
+        return OS_STATUS_INVALID_PARAM;
+    }
+
+    if ((task_is_valid(task) == 0U) || (task->stack_base == NULL))
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    while ((count < task->stack_size) && (task->stack_base[count] == OS_TASK_STACK_FILL_PATTERN))
+    {
+        count++;
+    }
+
+    *unused_words = count;
+    return OS_STATUS_OK;
 }
 
 /**
@@ -1850,34 +1931,26 @@ void task_exit_current(void)
     /* 这条 helper 只允许在线程态删除一个真实 RUNNING 的当前任务。 */
     if (os_port_is_in_interrupt() != 0U)
     {
-        while (1)
-        {
-        }
+        os_panic(OS_PANIC_TASK_STATE, __FILE__, (uint32_t)__LINE__);
     }
 
     status = task_validate_running_task(current_task);
     if (status != OS_STATUS_OK)
     {
-        while (1)
-        {
-        }
+        os_panic(OS_PANIC_TASK_STATE, __FILE__, (uint32_t)__LINE__);
     }
 
     /* idle 不能删除；若真的走到这里，说明调用链已经严重失配，直接停住。 */
     if (current_task == &g_idle_task)
     {
-        while (1)
-        {
-        }
+        os_panic(OS_PANIC_TASK_STATE, __FILE__, (uint32_t)__LINE__);
     }
 
     /* 第一版 mutex 明确禁止“持锁任务直接 return 自删”；
      * 若真的发生，直接停机暴露错误，不做隐式释放。 */
     if (list_is_empty(&current_task->owned_mutex_list) == 0U)
     {
-        while (1)
-        {
-        }
+        os_panic(OS_PANIC_TASK_STATE, __FILE__, (uint32_t)__LINE__);
     }
 
     primask = os_port_enter_critical();
@@ -1887,9 +1960,7 @@ void task_exit_current(void)
     if (status != OS_STATUS_OK)
     {
         os_port_exit_critical(primask);
-        while (1)
-        {
-        }
+        os_panic(OS_PANIC_TASK_STATE, __FILE__, (uint32_t)__LINE__);
     }
 
     /* 当前任务删掉后必须重新调度，保证 g_next_task 指向一个新的合法目标。 */
@@ -1899,9 +1970,7 @@ void task_exit_current(void)
         /* 正常情况下自删后一定需要切走到别的 runnable 任务；
          * 若不是，说明调度器状态已经异常。 */
         os_port_exit_critical(primask);
-        while (1)
-        {
-        }
+        os_panic(OS_PANIC_TASK_STATE, __FILE__, (uint32_t)__LINE__);
     }
 
     /* 在恢复中断前先 pend PendSV，保证当前已删除任务不会继续向前执行用户代码。 */
@@ -1910,9 +1979,7 @@ void task_exit_current(void)
 
     /* 正常情况下恢复中断后，PendSV 会立刻把当前已删除任务切走；
      * 若链路异常返回到这里，就永远停住，避免带着已删除任务继续执行。 */
-    while (1)
-    {
-    }
+    os_panic(OS_PANIC_TASK_STATE, __FILE__, (uint32_t)__LINE__);
 }
 
 /**

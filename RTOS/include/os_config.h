@@ -49,4 +49,22 @@
     #define OS_IDLE_TASK_STACK_DEPTH OS_TASK_MIN_STACK_DEPTH
 #endif
 
+/* 是否启用内核 assert。
+ * 默认开启；若后续需要做极限精简构建，可由外部显式关闭。 */
+#ifndef OS_ASSERT_ENABLE
+    #define OS_ASSERT_ENABLE 1U
+#endif
+
+/* 是否启用任务栈运行期检查。
+ * 默认开启，当前会在上下文切换与 tick 路径执行栈安全检查。 */
+#ifndef OS_TASK_STACK_CHECK_ENABLE
+    #define OS_TASK_STACK_CHECK_ENABLE 1U
+#endif
+
+/* 任务栈填充值。
+ * 任务创建时会用该 pattern 预填整段栈内存，用于 high water mark 与栈溢出诊断。 */
+#ifndef OS_TASK_STACK_FILL_PATTERN
+    #define OS_TASK_STACK_FILL_PATTERN 0xA5A5A5A5UL
+#endif
+
 #endif /* __OS_CONFIG_H__ */

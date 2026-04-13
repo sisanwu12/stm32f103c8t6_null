@@ -11,9 +11,9 @@
  */
 
 #include <string.h>
+#include "internal/os_task_internal.h"
 #include "os_mutex.h"
 #include "os_port.h"
-#include "os_task.h"
 
 static uint8_t os_mutex_is_valid(const os_mutex_t *mutex);
 static os_status_t os_mutex_owner_link_locked(os_mutex_t *mutex, tcb_t *owner);

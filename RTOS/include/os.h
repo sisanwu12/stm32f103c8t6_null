@@ -13,6 +13,7 @@
 #ifndef __OS_H__
 #define __OS_H__
 
+#include "os_diag.h"
 #include "os_mutex.h"
 #include "os_queue.h"
 #include "os_sem.h"

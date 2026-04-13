@@ -79,47 +79,12 @@ typedef struct task_init_config {
     uint8_t      time_slice; // 时间片长度，传 0 使用默认值
 } task_init_config_t; // 任务初始化配置
 
-typedef struct ready_queue {
-    list_t   ready_lists[OS_MAX_PRIORITIES]; // 每个优先级一条可运行链表
-    uint32_t ready_bitmap;                   // 可运行位图，bit置位表示该优先级非空
-} ready_queue_t; // 调度器可运行任务集合
-
-os_status_t task_system_init(void);
 os_status_t task_create(tcb_t *task, const task_init_config_t *config);
 os_status_t task_delete(tcb_t *task);
-os_status_t task_schedule(void);
 os_status_t task_yield(void);
 os_status_t task_delay(os_tick_t delay_ticks);
 os_tick_t os_tick_get(void);
 tcb_t *task_get_current(void);
-tcb_t *task_get_next(void);
-ready_queue_t *task_get_ready_queue(void);
-os_status_t task_set_current(tcb_t *task);
-
-/*
- * 以下接口属于“内核内部接口区”：
- * 当前主要给 SysTick 路径以及后续 queue/semaphore 等同步原语复用，
- * 普通应用代码不应直接依赖这些接口组织业务逻辑。
- */
-os_status_t task_system_tick(void);
-os_status_t task_block_current(void *wait_obj, os_tick_t timeout_ticks, task_wait_cleanup_fn_t wait_cleanup_locked);
-os_status_t task_unblock(tcb_t *task, task_wait_result_t wait_result);
-void task_exit_current(void);
-tcb_t *task_wait_list_peek_head_task(const list_t *wait_list);
-os_status_t task_effective_priority_update_locked(tcb_t *task, uint8_t new_priority);
-os_status_t task_priority_inheritance_raise_locked(tcb_t *task, uint8_t inherited_priority);
-os_status_t task_priority_inheritance_refresh_locked(tcb_t *task);
-os_status_t task_wait_list_insert_priority_ordered(list_t *wait_list, tcb_t *task);
-void task_wait_list_remove_task(list_t *wait_list, tcb_t *task);
-
-void ready_queue_init(ready_queue_t *queue);
-void ready_queue_insert_tail(ready_queue_t *queue, tcb_t *task);
-void ready_queue_remove(ready_queue_t *queue, tcb_t *task);
-const tcb_t *ready_queue_peek_highest(const ready_queue_t *queue);
-uint8_t ready_queue_get_highest_priority(const ready_queue_t *queue, uint8_t *priority);
-void ready_queue_rotate(ready_queue_t *queue, uint8_t priority);
-uint8_t ready_queue_is_empty(const ready_queue_t *queue);
-
-
+os_status_t task_stack_high_water_mark_get(const tcb_t *task, uint32_t *unused_words);
 
 #endif /* __OS_TASK_H__ */

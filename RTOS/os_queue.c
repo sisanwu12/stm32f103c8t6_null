@@ -11,9 +11,9 @@
  */
 
 #include <string.h>
+#include "internal/os_task_internal.h"
 #include "os_port.h"
 #include "os_queue.h"
-#include "os_task.h"
 
 #define OS_QUEUE_TIMEOUT_HALF_RANGE ((os_tick_t)0x80000000UL) // 与任务层相同的半区间限制，保证 deadline 差值比较成立
 

@@ -13,7 +13,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "stm32f1xx.h"
-#include "os_task.h"
+#include "os_diag.h"
+#include "internal/os_task_internal.h"
 #include "os_port_cortex_m3.h"
 
 extern uint32_t _estack;
@@ -43,7 +44,58 @@ extern uint32_t _estack;
 #endif
 
 static OS_PORT_USED void os_port_configure_exception_priorities(void);
+static OS_PORT_USED uint8_t os_port_task_sp_is_valid(const tcb_t *task, const uint32_t *stack_pointer);
+static OS_PORT_USED void os_port_panic_task_exit_returned(void);
+static OS_PORT_USED void os_port_panic_start_first_task_returned(void);
+static OS_PORT_USED void os_port_panic_context_switch_failure(void);
 static OS_PORT_USED uint32_t *os_port_switch_context(uint32_t *stack_pointer);
+
+/**
+ * @brief 检查一个 PSP 值是否落在任务的合法栈区间内，且满足对齐约束。
+ *
+ * @param task 目标任务对象。
+ * @param stack_pointer 待检查的 PSP 值。
+ *
+ * @return uint8_t 非 0 表示 PSP 合法，0 表示非法。
+ */
+static OS_PORT_USED uint8_t os_port_task_sp_is_valid(const tcb_t *task, const uint32_t *stack_pointer)
+{
+    uintptr_t stack_low = 0U;
+    uintptr_t stack_high = 0U;
+    uintptr_t sp = 0U;
+
+    if ((task == NULL) || (stack_pointer == NULL))
+    {
+        return 0U;
+    }
+
+    if ((task->magic != OS_TASK_MAGIC) || (task->stack_base == NULL) || (task->stack_size < OS_TASK_MIN_STACK_DEPTH))
+    {
+        return 0U;
+    }
+
+    stack_low = (uintptr_t)task->stack_base;
+    stack_high = (uintptr_t)(task->stack_base + task->stack_size);
+    stack_high &= ~OS_PORT_STACK_ALIGN_MASK;
+    sp = (uintptr_t)stack_pointer;
+
+    if (stack_high <= stack_low)
+    {
+        return 0U;
+    }
+
+    if ((sp < stack_low) || (sp >= stack_high))
+    {
+        return 0U;
+    }
+
+    if ((sp & OS_PORT_STACK_ALIGN_MASK) != 0U)
+    {
+        return 0U;
+    }
+
+    return 1U;
+}
 
 /**
  * @brief 当任务函数返回时，自动走当前任务自删路径。
@@ -58,9 +110,31 @@ static void os_port_task_exit_error(void)
 
     /* 正常情况下 task_exit_current() 不会返回；
      * 若它意外返回，说明删除链路已经异常，只能停在本地死循环。 */
-    while (1)
-    {
-    }
+    os_port_panic_task_exit_returned();
+}
+
+/**
+ * @brief 处理“任务 return 后自删 helper 意外返回”的端口层 panic。
+ */
+static OS_PORT_USED void os_port_panic_task_exit_returned(void)
+{
+    os_panic(OS_PANIC_PORT_FAILURE, __FILE__, (uint32_t)__LINE__);
+}
+
+/**
+ * @brief 处理“首任务启动链路意外继续向前执行”的端口层 panic。
+ */
+static OS_PORT_USED void os_port_panic_start_first_task_returned(void)
+{
+    os_panic(OS_PANIC_PORT_FAILURE, __FILE__, (uint32_t)__LINE__);
+}
+
+/**
+ * @brief 处理“PendSV 切换失败”的端口层 panic。
+ */
+static OS_PORT_USED void os_port_panic_context_switch_failure(void)
+{
+    os_panic(OS_PANIC_PORT_FAILURE, __FILE__, (uint32_t)__LINE__);
 }
 
 /**
@@ -91,26 +165,35 @@ static OS_PORT_USED uint32_t *os_port_switch_context(uint32_t *stack_pointer)
     if (current_task != NULL)
     {
         current_task->sp = stack_pointer;
+
+#if (OS_TASK_STACK_CHECK_ENABLE != 0U)
+        if (os_port_task_sp_is_valid(current_task, current_task->sp) == 0U)
+        {
+            os_panic(OS_PANIC_STACK_POINTER_RANGE, __FILE__, (uint32_t)__LINE__);
+        }
+#endif
     }
 
     /* g_next_task 由调度器提前选好；port 层这里只负责消费这个结果。 */
     next_task = task_get_next();
     if (next_task == NULL)
     {
-        /* 没有 next task 时，保持当前上下文不变。
-         * 若当前任务存在，就返回它刚刚保存下来的栈顶；若连 current 都没有，
-         * 说明首任务启动链路本身就不成立，返回 NULL 让上层停在兜底路径。 */
-        return (current_task != NULL) ? current_task->sp : NULL;
+        os_panic(OS_PANIC_PORT_FAILURE, __FILE__, (uint32_t)__LINE__);
     }
+
+#if (OS_TASK_STACK_CHECK_ENABLE != 0U)
+    if (os_port_task_sp_is_valid(next_task, next_task->sp) == 0U)
+    {
+        os_panic(OS_PANIC_STACK_POINTER_RANGE, __FILE__, (uint32_t)__LINE__);
+    }
+#endif
 
     /* 把调度器选中的 next task 正式提交成 current task。
      * 这一步会同步更新 g_current_task 和任务状态。 */
     status = task_set_current(next_task);
     if (status != OS_STATUS_OK)
     {
-        /* 若提交失败，也不能随便切走；这里退回到原 current 的栈顶，
-         * 让异常返回继续回到原任务。首任务路径下则返回 NULL。 */
-        return (current_task != NULL) ? current_task->sp : NULL;
+        os_panic(OS_PANIC_PORT_FAILURE, __FILE__, (uint32_t)__LINE__);
     }
 
     /* 切换提交成功后，返回新 current task 的软件保存区栈顶，
@@ -278,14 +361,13 @@ OS_PORT_NAKED void os_port_start_first_task(void)
         "bl os_port_trigger_pendsv         \n"
         /* 重新开中断后，PendSV 或更高优先级异常都会在“已恢复的 MSP”上运行。 */
         "cpsie i                           \n"
-        /* 若首任务切入正常，这里不会继续向前推进；留本地死循环兜底。 */
+        /* 若首任务链路意外继续向前执行，转入统一 panic 路径。 */
+        "bl os_port_panic_start_first_task_returned \n"
         "1:                                \n"
         "b 1b                              \n"
     );
 #else
-    while (1)
-    {
-    }
+    os_port_panic_start_first_task_returned();
 #endif
 }
 
@@ -367,13 +449,12 @@ OS_PORT_NAKED void PendSV_Handler(void)
         /* 走异常返回，CPU 会自动从 PSP 中恢复硬件栈帧：
          * r0-r3、r12、lr、pc、xpsr。 */
         "bx lr                              \n"
-        /* 失败兜底：停在原地，避免带着损坏的上下文继续执行。 */
+        /* 失败兜底：转入统一 panic 路径，避免带着损坏的上下文继续执行。 */
         "3:                                 \n"
+        "bl os_port_panic_context_switch_failure \n"
         "b 3b                               \n"
     );
 #else
-    while (1)
-    {
-    }
+    os_port_panic_context_switch_failure();
 #endif
 }

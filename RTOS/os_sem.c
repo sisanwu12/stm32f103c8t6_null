@@ -11,9 +11,9 @@
  */
 
 #include <string.h>
+#include "internal/os_task_internal.h"
 #include "os_port.h"
 #include "os_sem.h"
-#include "os_task.h"
 
 #define OS_SEM_BINARY_MAX_COUNT 1U // 当前阶段的 public API 只暴露二值语义，因此最大计数固定为 1
 
