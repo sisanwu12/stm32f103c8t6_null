@@ -1751,6 +1751,199 @@ os_tick_t os_tick_get(void)
 }
 
 /**
+ * @brief 获取任务当前生效优先级。
+ *
+ * @param task 目标任务对象。
+ * @param priority 输出当前生效优先级。
+ *
+ * @return os_status_t 查询成功返回 OS_STATUS_OK，否则返回具体错误码。
+ */
+os_status_t task_priority_get(const tcb_t *task, uint8_t *priority)
+{
+    uint32_t primask = 0U; // 当前只读查询路径的临界区快照
+
+    if ((task == NULL) || (priority == NULL))
+    {
+        return OS_STATUS_INVALID_PARAM;
+    }
+
+    if (task_is_valid(task) == 0U)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    primask = os_port_enter_critical();
+    *priority = task->priority;
+    os_port_exit_critical(primask);
+    return OS_STATUS_OK;
+}
+
+/**
+ * @brief 获取任务当前配置的 base priority。
+ *
+ * @param task 目标任务对象。
+ * @param priority 输出当前 base priority。
+ *
+ * @return os_status_t 查询成功返回 OS_STATUS_OK，否则返回具体错误码。
+ */
+os_status_t task_base_priority_get(const tcb_t *task, uint8_t *priority)
+{
+    uint32_t primask = 0U; // 当前只读查询路径的临界区快照
+
+    if ((task == NULL) || (priority == NULL))
+    {
+        return OS_STATUS_INVALID_PARAM;
+    }
+
+    if (task_is_valid(task) == 0U)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    primask = os_port_enter_critical();
+    *priority = task->base_priority;
+    os_port_exit_critical(primask);
+    return OS_STATUS_OK;
+}
+
+/**
+ * @brief 修改任务的 base priority，并按继承规则重算当前生效优先级。
+ *
+ * @param task 目标任务对象。
+ * @param priority 新的 base priority。
+ *
+ * @return os_status_t 修改成功返回 OS_STATUS_OK，否则返回具体错误码。
+ */
+os_status_t task_base_priority_set(tcb_t *task, uint8_t priority)
+{
+    os_status_t status = OS_STATUS_OK;
+    uint32_t    primask = 0U;          // 当前 set 路径的外层临界区
+    uint8_t     scheduler_running = 0U; // 非 0 表示当前已经切入线程运行期
+
+    if (os_port_is_in_interrupt() != 0U)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    if (task == NULL)
+    {
+        return OS_STATUS_INVALID_PARAM;
+    }
+
+    if (g_task_system_initialized == 0U)
+    {
+        return OS_STATUS_NOT_INITIALIZED;
+    }
+
+    if (task_is_valid(task) == 0U)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    if (task == &g_idle_task)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    if (task->state == TASK_DELETED)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    if (task_is_known_to_scheduler(task) == 0U)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    if (task_user_priority_is_valid(priority) == 0U)
+    {
+        return OS_STATUS_INVALID_PRIORITY;
+    }
+
+    primask = os_port_enter_critical();
+    task->base_priority = priority;
+
+    status = task_priority_inheritance_refresh_locked(task);
+    if (status != OS_STATUS_OK)
+    {
+        os_port_exit_critical(primask);
+        return status;
+    }
+
+    scheduler_running = (uint8_t)(g_current_task != NULL);
+    status = task_schedule();
+    if ((status != OS_STATUS_OK) && (status != OS_STATUS_NO_CHANGE) && (status != OS_STATUS_SWITCH_REQUIRED))
+    {
+        os_port_exit_critical(primask);
+        return status;
+    }
+
+    if ((scheduler_running != 0U) && (status == OS_STATUS_SWITCH_REQUIRED))
+    {
+        os_port_trigger_pendsv();
+    }
+
+    os_port_exit_critical(primask);
+    return OS_STATUS_OK;
+}
+
+/**
+ * @brief 获取任务当前状态。
+ *
+ * @param task 目标任务对象。
+ * @param state 输出当前任务状态。
+ *
+ * @return os_status_t 查询成功返回 OS_STATUS_OK，否则返回具体错误码。
+ */
+os_status_t task_state_get(const tcb_t *task, task_state_t *state)
+{
+    uint32_t primask = 0U; // 当前只读查询路径的临界区快照
+
+    if ((task == NULL) || (state == NULL))
+    {
+        return OS_STATUS_INVALID_PARAM;
+    }
+
+    if (task_is_valid(task) == 0U)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    primask = os_port_enter_critical();
+    *state = task->state;
+    os_port_exit_critical(primask);
+    return OS_STATUS_OK;
+}
+
+/**
+ * @brief 获取任务名称指针。
+ *
+ * @param task 目标任务对象。
+ * @param name 输出任务名称指针。
+ *
+ * @return os_status_t 查询成功返回 OS_STATUS_OK，否则返回具体错误码。
+ */
+os_status_t task_name_get(const tcb_t *task, const char **name)
+{
+    uint32_t primask = 0U; // 当前只读查询路径的临界区快照
+
+    if ((task == NULL) || (name == NULL))
+    {
+        return OS_STATUS_INVALID_PARAM;
+    }
+
+    if (task_is_valid(task) == 0U)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    primask = os_port_enter_critical();
+    *name = task->name;
+    os_port_exit_critical(primask);
+    return OS_STATUS_OK;
+}
+
+/**
  * @brief 统计任务栈当前仍保持 fill pattern 的未使用空间。
  *
  * @param task 待查询的任务对象。
@@ -1760,7 +1953,7 @@ os_tick_t os_tick_get(void)
  */
 os_status_t task_stack_high_water_mark_get(const tcb_t *task, uint32_t *unused_words)
 {
-    uint32_t count = 0U;
+    uint32_t count = 0U; // 当前仍保持 fill pattern 的低地址连续 word 数
 
     if ((task == NULL) || (unused_words == NULL))
     {
@@ -1779,6 +1972,69 @@ os_status_t task_stack_high_water_mark_get(const tcb_t *task, uint32_t *unused_w
 
     *unused_words = count;
     return OS_STATUS_OK;
+}
+
+/**
+ * @brief 以固定周期推进当前任务的下一次唤醒时刻。
+ *
+ * @param previous_wake_tick 上一次唤醒基准 tick。
+ * @param period_ticks 任务期望的周期长度，单位为 tick。
+ *
+ * @return os_status_t 成功进入延时或本次无需延时时返回 OS_STATUS_OK，否则返回具体错误码。
+ */
+os_status_t task_delay_until(os_tick_t *previous_wake_tick, os_tick_t period_ticks)
+{
+    os_status_t status = OS_STATUS_OK;
+    uint32_t    primask = 0U;          // 当前 delay-until 路径的外层临界区
+    os_tick_t   next_wake_tick = 0U;   // 本轮计算得到的绝对目标唤醒 tick
+    os_tick_t   current_tick = 0U;     // 进入临界区后读取到的当前绝对 tick
+    os_tick_t   remaining_ticks = 0U;  // 当前距离目标唤醒点还需要等待多少 tick
+
+    if (os_port_is_in_interrupt() != 0U)
+    {
+        return OS_STATUS_INVALID_STATE;
+    }
+
+    if (previous_wake_tick == NULL)
+    {
+        return OS_STATUS_INVALID_PARAM;
+    }
+
+    if ((period_ticks == 0U) || (period_ticks == OS_WAIT_FOREVER) || (task_timeout_is_supported(period_ticks) == 0U))
+    {
+        return OS_STATUS_INVALID_PARAM;
+    }
+
+    primask = os_port_enter_critical();
+    status = task_validate_running_task(g_current_task);
+    if (status != OS_STATUS_OK)
+    {
+        os_port_exit_critical(primask);
+        return status;
+    }
+
+    next_wake_tick = (os_tick_t)(*previous_wake_tick + period_ticks);
+    current_tick = g_os_tick;
+    *previous_wake_tick = next_wake_tick;
+
+    if (task_tick_is_due(current_tick, next_wake_tick) != 0U)
+    {
+        os_port_exit_critical(primask);
+        return OS_STATUS_OK;
+    }
+
+    remaining_ticks = (os_tick_t)(next_wake_tick - current_tick);
+    status = task_prepare_wait_locked(g_current_task, TASK_SLEEPING, NULL, remaining_ticks, NULL);
+
+    if (status == OS_STATUS_SWITCH_REQUIRED)
+    {
+        os_port_trigger_pendsv();
+        os_port_exit_critical(primask);
+        return OS_STATUS_OK;
+    }
+
+    os_port_exit_critical(primask);
+    return status;
 }
 
 /**

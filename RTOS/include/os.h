@@ -18,6 +18,7 @@
 #include "os_queue.h"
 #include "os_sem.h"
 #include "os_task.h"
+#include "os_timer.h"
 
 /**
  * @brief 启动内核并切入首个任务。

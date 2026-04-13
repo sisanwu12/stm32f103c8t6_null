@@ -22,7 +22,9 @@ typedef enum {
     OS_PANIC_TASK_STATE,          // 任务状态或生命周期状态失配
     OS_PANIC_STACK_POINTER_RANGE, // 保存或恢复的 PSP 超出任务合法栈区间
     OS_PANIC_STACK_SENTINEL,      // 任务栈底哨兵字被覆盖，判定发生栈溢出
-    OS_PANIC_PORT_FAILURE         // 端口层启动/切换链路发生异常
+    OS_PANIC_PORT_FAILURE,        // 端口层启动/切换链路发生异常
+    OS_PANIC_HARDFAULT,           // HardFault 异常统一接入 panic
+    OS_PANIC_USAGEFAULT           // UsageFault 异常统一接入 panic
 } os_panic_reason_t; // panic 原因枚举定义
 
 typedef struct os_panic_info {

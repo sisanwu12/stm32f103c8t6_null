@@ -83,8 +83,14 @@ os_status_t task_create(tcb_t *task, const task_init_config_t *config);
 os_status_t task_delete(tcb_t *task);
 os_status_t task_yield(void);
 os_status_t task_delay(os_tick_t delay_ticks);
+os_status_t task_delay_until(os_tick_t *previous_wake_tick, os_tick_t period_ticks);
 os_tick_t os_tick_get(void);
 tcb_t *task_get_current(void);
+os_status_t task_priority_get(const tcb_t *task, uint8_t *priority);
+os_status_t task_base_priority_get(const tcb_t *task, uint8_t *priority);
+os_status_t task_base_priority_set(tcb_t *task, uint8_t priority);
+os_status_t task_state_get(const tcb_t *task, task_state_t *state);
+os_status_t task_name_get(const tcb_t *task, const char **name);
 os_status_t task_stack_high_water_mark_get(const tcb_t *task, uint32_t *unused_words);
 
 #endif /* __OS_TASK_H__ */

@@ -67,4 +67,15 @@
     #define OS_TASK_STACK_FILL_PATTERN 0xA5A5A5A5UL
 #endif
 
+/* 软件定时器后台任务优先级。
+ * 默认只高于 idle，避免定时器服务线程抢占普通业务任务。 */
+#ifndef OS_TIMER_TASK_PRIORITY
+    #define OS_TIMER_TASK_PRIORITY ((uint8_t)(OS_MAX_PRIORITIES - 2U))
+#endif
+
+/* 软件定时器后台任务栈深度，单位为 uint32_t。 */
+#ifndef OS_TIMER_TASK_STACK_DEPTH
+    #define OS_TIMER_TASK_STACK_DEPTH 64U
+#endif
+
 #endif /* __OS_CONFIG_H__ */

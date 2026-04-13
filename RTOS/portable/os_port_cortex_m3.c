@@ -15,6 +15,7 @@
 #include "stm32f1xx.h"
 #include "os_diag.h"
 #include "internal/os_task_internal.h"
+#include "internal/os_timer_internal.h"
 #include "os_port_cortex_m3.h"
 
 extern uint32_t _estack;
@@ -49,6 +50,13 @@ static OS_PORT_USED void os_port_panic_task_exit_returned(void);
 static OS_PORT_USED void os_port_panic_start_first_task_returned(void);
 static OS_PORT_USED void os_port_panic_context_switch_failure(void);
 static OS_PORT_USED uint32_t *os_port_switch_context(uint32_t *stack_pointer);
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((weak))
+#endif
+void os_port_app_systick_hook(void)
+{
+}
 
 /**
  * @brief 检查一个 PSP 值是否落在任务的合法栈区间内，且满足对齐约束。
@@ -138,12 +146,19 @@ static OS_PORT_USED void os_port_panic_context_switch_failure(void)
 }
 
 /**
- * @brief 统一配置 SysTick 与 PendSV 的异常优先级。
+ * @brief 统一配置 RTOS 运行期依赖的系统异常优先级与使能状态。
+ *
+ * @note 除了设置 SysTick / PendSV 优先级之外，
+ *       这里还会显式打开 UsageFault。
+ *       在 Cortex-M3 上，若不置位 SHCSR.USGFAULTENA，
+ *       真正的 UsageFault 会直接升级成 HardFault，
+ *       那么独立的 UsageFault panic 路径就永远到不了。
  */
 static OS_PORT_USED void os_port_configure_exception_priorities(void)
 {
     NVIC_SetPriority(PendSV_IRQn, OS_PORT_LOWEST_INTERRUPT_PRIORITY);
     NVIC_SetPriority(SysTick_IRQn, OS_PORT_SYSTICK_PRIORITY);
+    SCB->SHCSR |= SCB_SHCSR_USGFAULTENA_Msk;
 }
 
 /**
@@ -377,12 +392,37 @@ OS_PORT_NAKED void os_port_start_first_task(void)
 void SysTick_Handler(void)
 {
     os_status_t status = OS_STATUS_OK;
+    os_status_t timer_status = OS_STATUS_OK;
 
     status = task_system_tick();
+    timer_status = os_timer_system_tick();
+    if ((timer_status != OS_STATUS_OK) && (timer_status != OS_STATUS_NO_CHANGE) && (timer_status != OS_STATUS_SWITCH_REQUIRED))
+    {
+        os_panic(OS_PANIC_TASK_STATE, __FILE__, (uint32_t)__LINE__);
+    }
+
+    os_port_app_systick_hook();
+
     if (status == OS_STATUS_SWITCH_REQUIRED)
     {
         os_port_trigger_pendsv();
     }
+}
+
+/**
+ * @brief HardFault 异常处理函数，统一接入 panic 诊断链路。
+ */
+void HardFault_Handler(void)
+{
+    os_panic(OS_PANIC_HARDFAULT, __FILE__, (uint32_t)__LINE__);
+}
+
+/**
+ * @brief UsageFault 异常处理函数，统一接入 panic 诊断链路。
+ */
+void UsageFault_Handler(void)
+{
+    os_panic(OS_PANIC_USAGEFAULT, __FILE__, (uint32_t)__LINE__);
 }
 
 /**
