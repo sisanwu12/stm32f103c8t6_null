@@ -18,7 +18,8 @@
  */
 void dri_ll_rcc_hsi_enable(void)
 {
-    dri_ll_set_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET, RCC_CR_HSION); // 设置 HSION 位
+    dri_ll_set_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET,
+                    DRI_LL_RCC_CR_HSION); // 设置 HSION 位
 }
 
 /**
@@ -27,7 +28,8 @@ void dri_ll_rcc_hsi_enable(void)
  */
 void dri_ll_rcc_hsi_disable(void)
 {
-    dri_ll_clear_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET, RCC_CR_HSION); // 清除 HSION 位
+    dri_ll_clear_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET,
+                      DRI_LL_RCC_CR_HSION); // 清除 HSION 位
 }
 
 /**
@@ -39,8 +41,8 @@ void dri_ll_rcc_hsi_disable(void)
  */
 isREADY dri_ll_rcc_hsi_is_ready(void)
 {
-    return (dri_ll_read_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET) & RCC_CR_HSIRDY) !=
-           0; // 检查 HSIRDY 位
+    return (dri_ll_read_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET) &
+            DRI_LL_RCC_CR_HSIRDY) != 0; // 检查 HSIRDY 位
 }
 
 /**
@@ -49,7 +51,8 @@ isREADY dri_ll_rcc_hsi_is_ready(void)
  */
 void dri_ll_rcc_hse_enable(void)
 {
-    dri_ll_set_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET, RCC_CR_HSEON); // 设置 HSEON 位
+    dri_ll_set_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET,
+                    DRI_LL_RCC_CR_HSEON); // 设置 HSEON 位
 }
 
 /**
@@ -58,7 +61,8 @@ void dri_ll_rcc_hse_enable(void)
  */
 void dri_ll_rcc_hse_disable(void)
 {
-    dri_ll_clear_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET, RCC_CR_HSEON); // 清除 HSEON 位
+    dri_ll_clear_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET,
+                      DRI_LL_RCC_CR_HSEON); // 清除 HSEON 位
 }
 
 /**
@@ -70,8 +74,8 @@ void dri_ll_rcc_hse_disable(void)
  */
 isREADY dri_ll_rcc_hse_is_ready(void)
 {
-    return (dri_ll_read_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET) & RCC_CR_HSERDY) !=
-           0; // 检查 HSERDY 位
+    return (dri_ll_read_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET) &
+            DRI_LL_RCC_CR_HSERDY) != 0; // 检查 HSERDY 位
 }
 
 /**
@@ -80,12 +84,10 @@ isREADY dri_ll_rcc_hse_is_ready(void)
  */
 void dri_ll_rcc_pll_enable(void)
 {
-    dri_ll_set_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET, RCC_CR_PLLON); // 设置 PLLON 位
-
-    while (!dri_ll_rcc_pll_is_ready())
-    {
-        // 等待 PLL 稳定
-    }
+    dri_ll_set_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET,
+                    DRI_LL_RCC_CR_PLLON); // 设置 PLLON 位
+    dri_ll_wait_bits_set(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET,
+                         DRI_LL_RCC_CR_PLLRDY); // 等待 PLL 稳定
 }
 
 /**
@@ -94,12 +96,10 @@ void dri_ll_rcc_pll_enable(void)
  */
 void dri_ll_rcc_pll_disable(void)
 {
-    dri_ll_clear_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET, RCC_CR_PLLON); // 清除 PLLON 位
-
-    while (dri_ll_rcc_pll_is_ready())
-    {
-        // 等待 PLL 关闭
-    }
+    dri_ll_clear_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET,
+                      DRI_LL_RCC_CR_PLLON); // 清除 PLLON 位
+    dri_ll_wait_bits_clear(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET,
+                           DRI_LL_RCC_CR_PLLRDY); // 等待 PLL 关闭
 }
 
 /**
@@ -111,8 +111,8 @@ void dri_ll_rcc_pll_disable(void)
  */
 isREADY dri_ll_rcc_pll_is_ready(void)
 {
-    return (dri_ll_read_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET) & RCC_CR_PLLRDY) !=
-           0; // 检查 PLLRDY 位
+    return (dri_ll_read_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET) &
+            DRI_LL_RCC_CR_PLLRDY) != 0; // 检查 PLLRDY 位
 }
 
 /**
@@ -121,7 +121,8 @@ isREADY dri_ll_rcc_pll_is_ready(void)
  */
 void dri_ll_rcc_hse_bypass_enable(void)
 {
-    dri_ll_set_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET, RCC_CR_HSEBYP); // 设置 HSEBYP 位
+    dri_ll_set_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET,
+                    DRI_LL_RCC_CR_HSEBYP); // 设置 HSEBYP 位
 }
 
 /**
@@ -130,7 +131,8 @@ void dri_ll_rcc_hse_bypass_enable(void)
  */
 void dri_ll_rcc_hse_bypass_disable(void)
 {
-    dri_ll_clear_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET, RCC_CR_HSEBYP); // 清除 HSEBYP 位
+    dri_ll_clear_bits(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CR_OFFSET,
+                      DRI_LL_RCC_CR_HSEBYP); // 清除 HSEBYP 位
 }
 
 /* ========== 系统时钟选择与预分频 ========== */
@@ -147,8 +149,9 @@ void dri_ll_rcc_hse_bypass_disable(void)
  */
 void dri_ll_rcc_sysclk_select(dri_ll_rcc_sysclk_source sysclk_source)
 {
-    dri_ll_modify_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET, RCC_CFGR_SW,
-                      (sysclk_source & RCC_CFGR_SW)); // 设置 SW 位
+    dri_ll_modify_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET, DRI_LL_RCC_CFGR_SW_MASK,
+                      (((u32)sysclk_source << DRI_LL_RCC_CFGR_SW_POS) &
+                       DRI_LL_RCC_CFGR_SW_MASK)); // 设置 SW 位
 }
 
 /**
@@ -158,8 +161,9 @@ void dri_ll_rcc_sysclk_select(dri_ll_rcc_sysclk_source sysclk_source)
  */
 void dri_ll_rcc_ahb_prescaler_set(dri_ll_rcc_ahb_prescaler ahb_prescaler)
 {
-    dri_ll_modify_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET, RCC_CFGR_HPRE,
-                      (((u32)ahb_prescaler << RCC_CFGR_HPRE_POS) & RCC_CFGR_HPRE)); // 设置 HPRE 位
+    dri_ll_modify_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET, DRI_LL_RCC_CFGR_HPRE_MASK,
+                      (((u32)ahb_prescaler << DRI_LL_RCC_CFGR_HPRE_POS) &
+                       DRI_LL_RCC_CFGR_HPRE_MASK)); // 设置 HPRE 位
 }
 
 /**
@@ -170,8 +174,9 @@ void dri_ll_rcc_ahb_prescaler_set(dri_ll_rcc_ahb_prescaler ahb_prescaler)
 void dri_ll_rcc_apb1_prescaler_set(dri_ll_rcc_apb_prescaler apb1_prescaler)
 {
     dri_ll_modify_reg(
-        DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET, RCC_CFGR_PPRE1,
-        (((u32)apb1_prescaler << RCC_CFGR_PPRE1_POS) & RCC_CFGR_PPRE1)); // 设置 PPRE1 位
+        DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET, DRI_LL_RCC_CFGR_PPRE1_MASK,
+        (((u32)apb1_prescaler << DRI_LL_RCC_CFGR_PPRE1_POS) &
+         DRI_LL_RCC_CFGR_PPRE1_MASK)); // 设置 PPRE1 位
 }
 
 /**
@@ -182,8 +187,9 @@ void dri_ll_rcc_apb1_prescaler_set(dri_ll_rcc_apb_prescaler apb1_prescaler)
 void dri_ll_rcc_apb2_prescaler_set(dri_ll_rcc_apb_prescaler apb2_prescaler)
 {
     dri_ll_modify_reg(
-        DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET, RCC_CFGR_PPRE2,
-        (((u32)apb2_prescaler << RCC_CFGR_PPRE2_POS) & RCC_CFGR_PPRE2)); // 设置 PPRE2 位
+        DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET, DRI_LL_RCC_CFGR_PPRE2_MASK,
+        (((u32)apb2_prescaler << DRI_LL_RCC_CFGR_PPRE2_POS) &
+         DRI_LL_RCC_CFGR_PPRE2_MASK)); // 设置 PPRE2 位
 }
 
 /**
@@ -193,9 +199,10 @@ void dri_ll_rcc_apb2_prescaler_set(dri_ll_rcc_apb_prescaler apb2_prescaler)
  */
 dri_ll_rcc_sysclk_source dri_ll_rcc_sysclk_source_get(void)
 {
-    return (
-        dri_ll_rcc_sysclk_source)(dri_ll_read_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET) &
-                                  RCC_CFGR_SW); // 获取 SW 位
+    return (dri_ll_rcc_sysclk_source)dri_ll_read_field(DRI_LL_RCC_BASE_ADDR,
+                                                       DRI_LL_RCC_CFGR_OFFSET,
+                                                       DRI_LL_RCC_CFGR_SW_MASK,
+                                                       DRI_LL_RCC_CFGR_SW_POS); // 获取 SW 字段
 }
 
 /**
@@ -205,8 +212,10 @@ dri_ll_rcc_sysclk_source dri_ll_rcc_sysclk_source_get(void)
  */
 dri_ll_rcc_sysclk_status dri_ll_rcc_sysclk_status_get(void)
 {
-    return (dri_ll_rcc_sysclk_status)dri_ll_read_field(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET,
-                                                       RCC_CFGR_SWS_MSK, RCC_CFGR_SWS_POS);
+    return (dri_ll_rcc_sysclk_status)dri_ll_read_field(DRI_LL_RCC_BASE_ADDR,
+                                                       DRI_LL_RCC_CFGR_OFFSET,
+                                                       DRI_LL_RCC_CFGR_SWS_MASK,
+                                                       DRI_LL_RCC_CFGR_SWS_POS);
 }
 
 /* ========== PLL 配置 ========== */
@@ -222,8 +231,10 @@ dri_ll_rcc_sysclk_status dri_ll_rcc_sysclk_status_get(void)
  */
 void dri_ll_rcc_pll_source_set(dri_ll_rcc_pll_source source)
 {
-    dri_ll_modify_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET, RCC_CFGR_PLLSRC,
-                      (((u32)source << RCC_CFGR_PLLSRC_POS) & RCC_CFGR_PLLSRC)); // 设置 PLLSRC 位
+    dri_ll_modify_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET,
+                      DRI_LL_RCC_CFGR_PLLSRC_MASK,
+                      (((u32)source << DRI_LL_RCC_CFGR_PLLSRC_POS) &
+                       DRI_LL_RCC_CFGR_PLLSRC_MASK)); // 设置 PLLSRC 位
 }
 
 /**
@@ -233,8 +244,10 @@ void dri_ll_rcc_pll_source_set(dri_ll_rcc_pll_source source)
  */
 void dri_ll_rcc_pll_mul_set(dri_ll_rcc_pll_mul value)
 {
-    dri_ll_modify_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET, RCC_CFGR_PLLMUL,
-                      (((u32)value << RCC_CFGR_PLLMUL_POS) & RCC_CFGR_PLLMUL)); // 设置 PLLMUL 位
+    dri_ll_modify_reg(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET,
+                      DRI_LL_RCC_CFGR_PLLMUL_MASK,
+                      (((u32)value << DRI_LL_RCC_CFGR_PLLMUL_POS) &
+                       DRI_LL_RCC_CFGR_PLLMUL_MASK)); // 设置 PLLMUL 位
 }
 
 /**
@@ -244,8 +257,10 @@ void dri_ll_rcc_pll_mul_set(dri_ll_rcc_pll_mul value)
  */
 dri_ll_rcc_pll_source dri_ll_rcc_pll_source_get(void)
 {
-    return (dri_ll_rcc_pll_source)dri_ll_read_field(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET,
-                                                    RCC_CFGR_PLLSRC, RCC_CFGR_PLLSRC_POS);
+    return (dri_ll_rcc_pll_source)dri_ll_read_field(DRI_LL_RCC_BASE_ADDR,
+                                                    DRI_LL_RCC_CFGR_OFFSET,
+                                                    DRI_LL_RCC_CFGR_PLLSRC_MASK,
+                                                    DRI_LL_RCC_CFGR_PLLSRC_POS);
 }
 
 /**
@@ -256,7 +271,8 @@ dri_ll_rcc_pll_source dri_ll_rcc_pll_source_get(void)
 dri_ll_rcc_pll_mul dri_ll_rcc_pll_mul_get(void)
 {
     return (dri_ll_rcc_pll_mul)dri_ll_read_field(DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET,
-                                                 RCC_CFGR_PLLMUL, RCC_CFGR_PLLMUL_POS);
+                                                 DRI_LL_RCC_CFGR_PLLMUL_MASK,
+                                                 DRI_LL_RCC_CFGR_PLLMUL_POS);
 }
 
 /**
@@ -268,8 +284,9 @@ void dri_ll_rcc_pll_hse_div_set(dri_ll_rcc_pll_hse_div div)
 {
     // HSE 分频设置仅在 PLL 时钟源为 HSE 时有效, 因此调用该函数前请确保 PLL 时钟源已设置为 HSE
     dri_ll_modify_reg(
-        DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET, RCC_CFGR_PLLXTPRE,
-        (((u32)div << RCC_CFGR_PLLXTPRE_POS) & RCC_CFGR_PLLXTPRE)); // 设置 PLLXTPRE 位中的分频部分
+        DRI_LL_RCC_BASE_ADDR, DRI_LL_RCC_CFGR_OFFSET, DRI_LL_RCC_CFGR_PLLXTPRE_MASK,
+        (((u32)div << DRI_LL_RCC_CFGR_PLLXTPRE_POS) &
+         DRI_LL_RCC_CFGR_PLLXTPRE_MASK)); // 设置 PLLXTPRE 位中的分频部分
 }
 
 /* ========== 外设时钟门控 ========== */
